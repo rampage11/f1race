@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/main.tsx","./src/race/pitpanel.tsx","./src/race/raceview.tsx","./src/race/setupscreen.tsx","./src/race/standings.tsx","./src/race/telemetry.tsx","./src/race/trackcanvas.tsx","./src/race/colors.ts","./src/race/useraceengine.ts"],"version":"5.9.3"}

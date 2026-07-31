@@ -1,0 +1,212 @@
+:root {
+  color-scheme: dark;
+  --bg: #0b1220;
+  --panel: #111a2e;
+  --panel-2: #0f1729;
+  --line: #1f2a44;
+  --text: #e2e8f0;
+  --muted: #94a3b8;
+  --accent: #fbbf24;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+.app { max-width: 1320px; margin: 0 auto; padding: 16px; }
+
+.topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; flex-wrap: wrap; margin-bottom: 12px;
+}
+.brand { font-size: 20px; font-weight: 700; }
+.brand span { color: var(--muted); font-weight: 400; }
+
+.controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+button {
+  background: var(--panel); color: var(--text);
+  border: 1px solid var(--line); border-radius: 8px;
+  padding: 8px 12px; font-size: 13px; cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+button:hover:not(:disabled) { background: #1b2742; }
+button:disabled { opacity: 0.4; cursor: not-allowed; }
+button.active { border-color: var(--accent); color: var(--accent); }
+button.play { border-color: var(--accent); }
+button.restart { border-color: var(--line); }
+
+.speeds { display: flex; gap: 4px; }
+.speeds button { padding: 8px 10px; }
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 14px;
+}
+@media (max-width: 1000px) { .layout { grid-template-columns: 1fr; } }
+
+.stage { position: relative; }
+
+.side { display: flex; flex-direction: column; gap: 12px; }
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+.panel h3 { margin: 0 0 8px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+
+.telemetry .big { font-size: 34px; font-weight: 800; line-height: 1; }
+.telemetry .big .of { color: var(--muted); font-weight: 400; font-size: 16px; }
+.grid-info { color: var(--muted); font-size: 12px; margin: 2px 0 10px; }
+
+.stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.stat { display: flex; flex-direction: column; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; }
+.stat .label { font-size: 11px; color: var(--muted); }
+.stat .value { font-size: 15px; font-weight: 600; }
+
+.tyre-wear { margin-bottom: 10px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.bar { height: 8px; background: var(--panel-2); border-radius: 6px; overflow: hidden; }
+.fill { height: 100%; }
+
+.pitting { color: #f87171; font-weight: 600; margin-bottom: 8px; }
+.pending { color: var(--accent); font-weight: 600; margin-bottom: 8px; }
+
+.tyre-buttons { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 8px; }
+.tyre-btn {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  background: var(--panel-2); font-weight: 600;
+}
+.tyre-btn .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; border: 1px solid #0008; }
+.cancel { width: 100%; }
+.hint { color: var(--muted); font-size: 11px; margin: 8px 0 0; }
+
+.standings .list { display: flex; flex-direction: column; gap: 2px; max-height: 320px; overflow: auto; }
+.standings .row {
+  display: grid;
+  grid-template-columns: 24px 12px 1fr 18px 48px;
+  align-items: center; gap: 6px;
+  padding: 4px 6px; border-radius: 6px; font-size: 12px;
+}
+.standings .row.hero { background: rgba(251, 191, 36, 0.12); }
+.standings .row.pitting { opacity: 0.6; }
+.standings .pos { color: var(--muted); text-align: right; }
+.standings .team-dot { width: 8px; height: 8px; border-radius: 50%; }
+.standings .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.standings .tyre { font-weight: 700; text-align: center; }
+.standings .gap { color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+
+.overlay {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(2, 6, 23, 0.72);
+  border-radius: 12px;
+  backdrop-filter: blur(2px);
+}
+.overlay .card {
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 14px; padding: 18px 20px; max-width: 460px; width: 90%;
+}
+.overlay h2 { margin: 0 0 10px; }
+.result table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 13px; }
+.result td { padding: 4px 6px; border-bottom: 1px solid var(--line); }
+.result tr.hero td { color: var(--accent); font-weight: 600; }
+
+/* ---------- Setup screen ---------- */
+.setup {
+  min-height: 100vh;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 28px 16px;
+}
+.setup-card {
+  width: 100%;
+  max-width: 720px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 22px 24px;
+}
+.setup-card h1 { margin: 0 0 4px; font-size: 26px; }
+.setup-card .sub { margin: 0 0 18px; color: var(--muted); font-size: 13px; }
+
+.field { display: flex; flex-direction: column; gap: 8px; margin-bottom: 18px; }
+.field > span { font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); }
+.field .row-label { display: flex; align-items: center; justify-content: space-between; }
+.field .row-label em { font-style: normal; text-transform: none; color: var(--muted); font-size: 12px; }
+.field .row-label .ok { color: #22c55e; }
+.field .row-label .warn { color: var(--accent); }
+
+input[type="text"], select {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 10px 12px;
+  font-size: 15px;
+  width: 100%;
+}
+input:focus, select:focus { outline: none; border-color: var(--accent); }
+
+.teams { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+.team {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--panel-2); border: 1px solid var(--line);
+  border-radius: 8px; padding: 8px 10px; font-size: 13px;
+}
+.team.selected { border-width: 2px; }
+.team-dot { width: 12px; height: 12px; border-radius: 50%; flex: none; }
+
+.skills { display: flex; flex-direction: column; gap: 8px; }
+.skill {
+  display: flex; align-items: center; justify-content: space-between;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px;
+  gap: 12px;
+}
+.skill-head { display: flex; flex-direction: column; }
+.skill-name { font-weight: 600; font-size: 14px; }
+.skill-hint { color: var(--muted); font-size: 11px; }
+.skill-ctrl { display: flex; align-items: center; gap: 10px; }
+.skill-ctrl button {
+  width: 30px; height: 30px; padding: 0; font-size: 18px; line-height: 1;
+  border-radius: 8px; display: flex; align-items: center; justify-content: center;
+}
+.pips { display: flex; gap: 4px; }
+.pip { width: 14px; height: 14px; border-radius: 4px; background: #1e293b; border: 1px solid #334155; }
+.pip.on { background: var(--accent); border-color: var(--accent); }
+
+.tyre-pick { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+.tyre-pick-btn {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  background: var(--panel-2); border: 1px solid var(--line);
+  border-radius: 8px; padding: 10px; font-weight: 600;
+}
+.tyre-pick-btn.selected { border-width: 2px; }
+.tyre-pick-btn .dot { width: 12px; height: 12px; border-radius: 50%; border: 1px solid #0008; }
+
+.start-btn {
+  width: 100%; margin-top: 6px;
+  background: var(--accent); color: #0b1220; font-weight: 700;
+  border: none; border-radius: 10px; padding: 14px; font-size: 16px;
+}
+.start-btn:disabled { background: #374151; color: #64748b; }
+.warn-text { color: #f87171; font-size: 12px; margin: 8px 0 0; }
+
+/* ---------- Race extras ---------- */
+.brand .team-dot-inline { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin: 0 4px; vertical-align: middle; }
+button.ghost { background: transparent; }
+.overlay-actions { display: flex; gap: 8px; margin-top: 10px; }
+.overlay-actions button { flex: 1; }
+.result-headline { font-size: 15px; margin: 6px 0 10px; }
+.result thead th { color: var(--muted); font-weight: 400; font-size: 11px; text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--line); }
+

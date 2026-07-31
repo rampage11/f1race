@@ -4,12 +4,15 @@ import { mulberry32, type Rng } from "./rng.js";
 import { freshTyre, gripFor, wearDeltaForLap } from "./tyres.js";
 import { overtakingScoreAround, segmentAtS, trackLengthKm, trackLengthM } from "./track.js";
 import type {
+  CarSnapshot,
   CarState,
   Driver,
   RaceConfig,
   RaceEvent,
   RaceResult,
   RaceResultRow,
+  RaceSnapshot,
+  TyreCompound,
 } from "./types.js";
 
 const PUSH_BALANCED = 1.0;
@@ -31,6 +34,7 @@ export class RaceEngine {
   private fastestLapTime = Number.POSITIVE_INFINITY;
   private events: RaceEvent[] = [];
   private readonly dt: number;
+  private readonly pitRequests = new Map<string, TyreCompound>();
 
   constructor(config: RaceConfig, opts: EngineOptions = {}) {
     this.config = config;
@@ -130,6 +134,18 @@ export class RaceEngine {
     return this.result();
   }
 
+  requestPit(driverId: string, compound: TyreCompound): void {
+    this.pitRequests.set(driverId, compound);
+  }
+
+  cancelPit(driverId: string): void {
+    this.pitRequests.delete(driverId);
+  }
+
+  hasPendingPit(driverId: string): boolean {
+    return this.pitRequests.has(driverId);
+  }
+
   private stepCar(car: CarState, dt: number): void {
     if (car.finished || car.dnf) return;
     if (car.inPits) return;
@@ -213,16 +229,28 @@ export class RaceEngine {
     if (car.inPits || car.finished) return;
     const driver = this.driverOf(car);
     const plan = driver.pitPlan;
-    if (car.tyreStops >= Math.max(1, plan.targetStops)) return;
+    const requested = this.pitRequests.get(car.driverId);
 
     let want = false;
-    if (plan.strategy === "fixed_lap" && plan.lap != null) {
-      want = car.lap >= plan.lap;
-    } else {
-      const cliff = CONFIG.tyres[car.tyre.compound].cliff;
-      want = car.tyre.wear >= cliff * 0.92;
+    let compound: TyreCompound = plan.compound;
+
+    if (requested) {
+      want = true;
+      compound = requested;
+    } else if (driver.kind === "human") {
       const lapsLeft = this.config.totalLaps - car.lap;
-      if (lapsLeft <= 1 && car.tyreStops === 0) want = true;
+      const dead = car.tyre.wear >= 0.97;
+      if (car.tyreStops === 0 && (lapsLeft <= 0 || dead)) want = true;
+    } else {
+      if (car.tyreStops >= Math.max(1, plan.targetStops)) return;
+      if (plan.strategy === "fixed_lap" && plan.lap != null) {
+        want = car.lap >= plan.lap;
+      } else {
+        const cliff = CONFIG.tyres[car.tyre.compound].cliff;
+        want = car.tyre.wear >= cliff * 0.92;
+        const lapsLeft = this.config.totalLaps - car.lap;
+        if (lapsLeft <= 1 && car.tyreStops === 0) want = true;
+      }
     }
     if (!want) return;
 
@@ -232,7 +260,7 @@ export class RaceEngine {
 
     car.inPits = true;
     car.pitTimer = this.config.track.pitLaneDelta;
-    car.pendingTyre = plan.compound;
+    car.pendingTyre = compound;
     car.v = 0;
   }
 
@@ -258,6 +286,7 @@ export class RaceEngine {
         car.inPits = false;
         car.pitTimer = 0;
         car.v = CONFIG.physics.pitApproachSpeed;
+        this.pitRequests.delete(car.driverId);
       }
     }
   }
@@ -402,5 +431,49 @@ export class RaceEngine {
       dnf: c.dnf,
     }));
     return { rows, fastestLapDriverId: this.fastestLapDriverId, events: this.events };
+  }
+
+  snapshot(): RaceSnapshot {
+    const ranked = [...this.cars].sort((a, b) => this.compareOnTrack(a, b));
+    let prevAhead: CarState | null = null;
+    const cars: CarSnapshot[] = ranked.map((c, i) => {
+      const driver = this.driverOf(c);
+      const sNorm = ((c.s % this.length) + this.length) % this.length;
+      const gapAhead = prevAhead && !prevAhead.finished ? this.gapBetweenSec(prevAhead, c) : 0;
+      prevAhead = c;
+      return {
+        driverId: c.driverId,
+        name: driver.name,
+        team: driver.team,
+        country: driver.country,
+        kind: driver.kind,
+        position: i + 1,
+        gridPosition: c.gridPosition,
+        lap: Math.max(0, c.lap),
+        sFraction: sNorm / this.length,
+        v: c.v,
+        tyreCompound: c.tyre.compound,
+        tyreWear: c.tyre.wear,
+        inPits: c.inPits,
+        pitTimer: Math.max(0, c.pitTimer),
+        finished: c.finished,
+        dnf: c.dnf,
+        raceTime: c.raceTime,
+        gapAhead,
+        pitPending: this.pitRequests.has(c.driverId),
+        falseStart: c.falseStart,
+        overtakeScore: c.overtakeScore,
+      };
+    });
+    return {
+      time: this.time,
+      phase: this.phase,
+      totalLaps: this.config.totalLaps,
+      trackLengthM: this.length,
+      cars,
+      fastestLapDriverId: this.fastestLapDriverId,
+      events: this.events,
+      heroId: this.config.heroId ?? null,
+    };
   }
 }

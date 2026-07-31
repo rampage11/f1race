@@ -77,6 +77,15 @@ export interface CarState {
 
 export type SegmentKind = "straight" | "corner" | "pitlane";
 
+export interface Point2D {
+  x: number;
+  y: number;
+}
+
+export interface PathPoint extends Point2D {
+  angle: number;
+}
+
 export interface TrackSegment {
   kind: SegmentKind;
   length: number;
@@ -90,6 +99,7 @@ export interface Track {
   country: string;
   lengthM: number;
   segments: TrackSegment[];
+  path2D: Point2D[];
   pitLaneDelta: number;
   pitStopDuration: number;
   pitEntryS: number;
@@ -102,6 +112,7 @@ export interface RaceConfig {
   totalLaps: number;
   dt: number;
   seed: number;
+  heroId?: string;
 }
 
 export interface RaceResultRow {
@@ -136,4 +147,39 @@ export interface QualifyingResult {
   driverId: string;
   lapTime: number;
   gridPosition: number;
+}
+
+export interface CarSnapshot {
+  driverId: string;
+  name: string;
+  team: string;
+  country: string;
+  kind: DriverKind;
+  position: number;
+  gridPosition: number;
+  lap: number;
+  sFraction: number;
+  v: number;
+  tyreCompound: TyreCompound;
+  tyreWear: number;
+  inPits: boolean;
+  pitTimer: number;
+  finished: boolean;
+  dnf: boolean;
+  raceTime: number;
+  gapAhead: number;
+  pitPending: boolean;
+  falseStart: boolean;
+  overtakeScore: number;
+}
+
+export interface RaceSnapshot {
+  time: number;
+  phase: "grid" | "racing" | "finished";
+  totalLaps: number;
+  trackLengthM: number;
+  cars: CarSnapshot[];
+  fastestLapDriverId: string | null;
+  events: RaceEvent[];
+  heroId: string | null;
 }

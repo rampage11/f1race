@@ -105,14 +105,17 @@ export function buildRaceConfig(args: {
   totalLaps: number;
   seed?: number;
   dt?: number;
+  heroId?: string;
 }): RaceConfig {
-  return {
+  const cfg: RaceConfig = {
     track: args.track,
     drivers: args.drivers,
     totalLaps: args.totalLaps,
     seed: args.seed ?? (Date.now() >>> 0),
     dt: args.dt ?? CONFIG.physics.dtDefault,
   };
+  if (args.heroId) cfg.heroId = args.heroId;
+  return cfg;
 }
 
 export { validateStartingAllocation };

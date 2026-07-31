@@ -107,4 +107,49 @@ describe("RaceEngine", () => {
     expect(types.has("pit_stop")).toBe(true);
     expect(result.events.filter((e) => e.type === "finish")).toHaveLength(drivers.length);
   });
+
+  it("executes a player-requested pit stop with chosen compound", () => {
+    const track = redBullRing();
+    const hero = makeDriver({
+      name: "Hero",
+      country: "RU",
+      kind: "human",
+      skills: { ...emptySkills(), pace: 6 },
+      startingTyre: "medium",
+      pitPlan: { targetStops: 1, compound: "soft" },
+    });
+    const bots = field(8);
+    const drivers = gridFrom([hero, ...bots], 8);
+    const cfg = buildRaceConfig({ track, drivers, totalLaps: 14, seed: 321, dt: 0.1, heroId: hero.id });
+    const engine = new RaceEngine(cfg);
+    engine.requestPit(hero.id, "hard");
+    const result = engine.run();
+    const heroRow = result.rows.find((r) => r.driverId === hero.id)!;
+    expect(heroRow.tyreStops).toBeGreaterThanOrEqual(1);
+    const heroPit = result.events.find(
+      (e) => e.type === "pit_stop" && e.driverId === hero.id,
+    ) as { type: "pit_stop"; compound: "hard"; driverId: string; lap: number } | undefined;
+    expect(heroPit).toBeTruthy();
+    expect(heroPit!.compound).toBe("hard");
+  });
+
+  it("snapshot returns cars positioned on the track and phase info", () => {
+    const track = redBullRing();
+    const drivers = gridFrom(field(9), 9);
+    const cfg = buildRaceConfig({ track, drivers, totalLaps: 10, seed: 11, dt: 0.1 });
+    const engine = new RaceEngine(cfg);
+    engine.step();
+    engine.step();
+    const snap = engine.snapshot();
+    expect(snap.phase).toBe("racing");
+    expect(snap.totalLaps).toBe(10);
+    expect(snap.cars).toHaveLength(drivers.length);
+    for (const c of snap.cars) {
+      expect(c.sFraction).toBeGreaterThanOrEqual(0);
+      expect(c.sFraction).toBeLessThanOrEqual(1);
+      expect(c.position).toBeGreaterThan(0);
+    }
+    const positions = snap.cars.map((c) => c.position).sort((a, b) => a - b);
+    expect(positions).toEqual(Array.from({ length: drivers.length }, (_, i) => i + 1));
+  });
 });
