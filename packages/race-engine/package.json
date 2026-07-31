@@ -1,0 +1,31 @@
+{
+  "name": "@f1race/race-engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Deterministic real-time F1 race simulation engine. Pure logic, no I/O — tune formulas in tests/simulations.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "sim": "tsx scripts/simulate.ts",
+    "sim:grid": "tsx scripts/simulate.ts --grid",
+    "lint": "echo 'no lint configured'"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.5"
+  }
+}
