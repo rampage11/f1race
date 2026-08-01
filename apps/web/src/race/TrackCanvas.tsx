@@ -74,34 +74,40 @@ export function TrackCanvas({ snapshot, heroId }: { snapshot: RaceSnapshot | nul
     ctx.fillRect(-16, -3, 32, 6);
     ctx.restore();
 
-    // pit lane: parallel to the main straight (path[0] -> path[1]), offset toward the infield
-    const a = path[0]!;
-    const b = path[1]!;
-    const sdx = b.x - a.x;
-    const sdy = b.y - a.y;
-    const slen = Math.max(1e-6, Math.hypot(sdx, sdy));
-    let pnx = -sdy / slen;
-    let pny = sdx / slen;
-    const midX = (a.x + b.x) / 2;
-    const midY = (a.y + b.y) / 2;
-    const cenX = (bounds.minX + bounds.maxX) / 2;
-    const cenY = (bounds.minY + bounds.maxY) / 2;
-    if (pnx * (cenX - midX) + pny * (cenY - midY) < 0) {
-      pnx = -pnx;
-      pny = -pny;
-    }
-    const LANE = 40;
-    const T0 = 0.18;
-    const T1 = 0.82;
-    const pitA = { x: a.x + sdx * T0 + pnx * LANE, y: a.y + sdy * T0 + pny * LANE };
-    const pitB = { x: a.x + sdx * T1 + pnx * LANE, y: a.y + sdy * T1 + pny * LANE };
-    ctx.beginPath();
-    ctx.moveTo(sx(pitA.x), sy(pitA.y));
-    ctx.lineTo(sx(pitB.x), sy(pitB.y));
-    ctx.lineCap = "round";
-    ctx.lineWidth = 12;
-    ctx.strokeStyle = "#243049";
-    ctx.stroke();
+    // pit lane: entry just BEFORE start/finish (97% of lap), exit just AFTER (3% of next lap),
+    // connected through the infield. Cars drive entry -> pit lane -> exit (no teleport).
+    const center = { x: (bounds.minX + bounds.maxX) / 2, y: (bounds.minY + bounds.maxY) / 2 };
+    const LANE = 42;
+    const infieldOffset = (p: { x: number; y: number; angle: number }) => {
+      let nx = -Math.sin(p.angle);
+      let ny = Math.cos(p.angle);
+      if (nx * (center.x - p.x) + ny * (center.y - p.y) < 0) {
+        nx = -nx;
+        ny = -ny;
+      }
+      return { x: nx * LANE, y: ny * LANE };
+    };
+    const entryPt = pathPointAt(path, cum, track.pitEntryS / lengthM);
+    const exitPt = pathPointAt(path, cum, track.pitExitS / lengthM);
+    const inEntry = infieldOffset(entryPt);
+    const inExit = infieldOffset(exitPt);
+    const pitA = { x: entryPt.x + inEntry.x, y: entryPt.y + inEntry.y };
+    const pitB = { x: exitPt.x + inExit.x, y: exitPt.y + inExit.y };
+
+    const drawLane = (from: { x: number; y: number }, to: { x: number; y: number }) => {
+      ctx.beginPath();
+      ctx.moveTo(sx(from.x), sy(from.y));
+      ctx.lineTo(sx(to.x), sy(to.y));
+      ctx.lineCap = "round";
+      ctx.lineWidth = 12;
+      ctx.strokeStyle = "#243049";
+      ctx.stroke();
+    };
+    drawLane(pitA, pitB);
+    // entry/exit arms
+    drawLane(entryPt, pitA);
+    drawLane(pitB, exitPt);
+    // dashed centre line of the pit lane
     ctx.beginPath();
     ctx.moveTo(sx(pitA.x), sy(pitA.y));
     ctx.lineTo(sx(pitB.x), sy(pitB.y));
@@ -110,30 +116,63 @@ export function TrackCanvas({ snapshot, heroId }: { snapshot: RaceSnapshot | nul
     ctx.strokeStyle = "#64748b";
     ctx.stroke();
     ctx.setLineDash([]);
-    // pit boxes marks
+    // pit-box marks along the pit lane
     for (let i = 0; i < 8; i++) {
       const f = i / 7;
-      const px = pitA.x + (pitB.x - pitA.x) * f + pnx * 10;
-      const py = pitA.y + (pitB.y - pitA.y) * f + pny * 10;
+      const px = pitA.x + (pitB.x - pitA.x) * f + inEntry.x * 0.25;
+      const py = pitA.y + (pitB.y - pitA.y) * f + inEntry.y * 0.25;
       ctx.fillStyle = "#334155";
       ctx.fillRect(sx(px) - 4, sy(py) - 4, 8, 8);
     }
+    // entry/exit markers on the racing line
     ctx.fillStyle = "#fbbf24";
+    ctx.beginPath();
+    ctx.arc(sx(entryPt.x), sy(entryPt.y), 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(sx(exitPt.x), sy(exitPt.y), 5, 0, Math.PI * 2);
+    ctx.fill();
     ctx.font = "bold 11px system-ui, sans-serif";
-    ctx.fillText("PIT LANE", sx(pitA.x) - 6, sy(pitA.y) - 10);
+    ctx.fillText("PIT IN", sx(entryPt.x) + 8, sy(entryPt.y) - 6);
+    ctx.fillText("PIT OUT", sx(exitPt.x) + 8, sy(exitPt.y) - 6);
 
     if (!snapshot) return;
 
     const pitDelta = track.pitLaneDelta;
+    const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+    const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
+
+    const pitPosition = (car: { pitTimer: number; gridPosition: number }) => {
+      const g = pitDelta > 0 ? clamp01(1 - car.pitTimer / pitDelta) : 1;
+      const shift = ((car.gridPosition % 3) - 1) * 3;
+      const sxOff = inEntry.x * (shift / LANE);
+      const syOff = inEntry.y * (shift / LANE);
+      let fx: number;
+      let fy: number;
+      if (g < 0.15) {
+        const t = g / 0.15;
+        fx = lerp(entryPt.x, pitA.x, t);
+        fy = lerp(entryPt.y, pitA.y, t);
+      } else if (g < 0.85) {
+        let lf = (g - 0.15) / 0.7;
+        if (lf > 0.42 && lf < 0.58) lf = 0.5;
+        else if (lf <= 0.42) lf = (lf / 0.42) * 0.5;
+        else lf = 0.5 + ((lf - 0.58) / 0.42) * 0.5;
+        fx = lerp(pitA.x, pitB.x, lf);
+        fy = lerp(pitA.y, pitB.y, lf);
+      } else {
+        const t = (g - 0.85) / 0.15;
+        fx = lerp(pitB.x, exitPt.x, t);
+        fy = lerp(pitB.y, exitPt.y, t);
+      }
+      return { x: sx(fx + sxOff), y: sy(fy + syOff) };
+    };
 
     for (const car of snapshot.cars) {
       let pos: { x: number; y: number; angle?: number };
       if (car.inPits) {
-        const g = pitDelta > 0 ? Math.max(0, Math.min(1, 1 - car.pitTimer / pitDelta)) : 1;
-        const laneShift = ((car.gridPosition % 3) - 1) * 5;
-        const px = pitA.x + (pitB.x - pitA.x) * g + pnx * laneShift;
-        const py = pitA.y + (pitB.y - pitA.y) * g + pny * laneShift;
-        pos = { x: sx(px), y: sy(py) };
+        const p = pitPosition(car);
+        pos = { x: p.x, y: p.y };
       } else {
         const p = toScreen(car.sFraction);
         pos = { x: p.x, y: p.y, angle: p.angle };
@@ -141,7 +180,7 @@ export function TrackCanvas({ snapshot, heroId }: { snapshot: RaceSnapshot | nul
       const r = DOT_R;
       ctx.beginPath();
       ctx.arc(pos.x, pos.y, r, 0, Math.PI * 2);
-      ctx.fillStyle = car.inPits ? "#475569" : car.finished ? "#334155" : teamColor(car.team);
+      ctx.fillStyle = car.finished ? "#334155" : teamColor(car.team);
       ctx.fill();
       ctx.lineWidth = car.driverId === heroId ? 3 : 1;
       ctx.strokeStyle = car.driverId === heroId ? "#fde047" : "#0b1220";

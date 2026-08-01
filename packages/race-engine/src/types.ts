@@ -110,6 +110,7 @@ export interface Track {
   pitLaneDelta: number;
   pitStopDuration: number;
   pitEntryS: number;
+  pitExitS: number;
   laps: number;
 }
 

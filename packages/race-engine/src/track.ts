@@ -135,9 +135,10 @@ export function redBullRing(): Track {
     lengthM: length,
     segments,
     path2D,
-    pitLaneDelta: 24,
+    pitLaneDelta: 25,
     pitStopDuration: 3.0,
-    pitEntryS: 1000,
+    pitEntryS: Math.round(length * 0.97),
+    pitExitS: Math.round(length * 0.03),
     laps: 12,
   };
 }

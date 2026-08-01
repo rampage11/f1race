@@ -258,6 +258,10 @@ export class RaceEngine {
 
     let want = false;
     let compound: TyreCompound = plan.compound;
+    if (compound === car.tyre.compound) {
+      const alts = (["soft", "medium", "hard"] as TyreCompound[]).filter((c) => c !== car.tyre.compound);
+      compound = alts.includes("medium") ? "medium" : alts[0]!;
+    }
 
     if (requested) {
       want = true;
@@ -304,6 +308,10 @@ export class RaceEngine {
       if (car.pitTimer <= 0) {
         car.inPits = false;
         car.pitTimer = 0;
+        const lapsDone = Math.floor((car.s - car.initialS) / this.length);
+        car.s = car.initialS + (lapsDone + 1) * this.length + this.config.track.pitExitS;
+        car.lap = lapsDone + 1;
+        car.lapStartTime = car.raceTime;
         car.v = CONFIG.physics.pitApproachSpeed;
         this.pitRequests.delete(car.driverId);
       }
