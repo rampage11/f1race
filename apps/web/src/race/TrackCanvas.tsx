@@ -222,9 +222,9 @@ export function TrackCanvas({ snapshot, heroId }: { snapshot: SessionSnapshot | 
       }
     }
 
-    // hero label
+    // hero label (race only — during qualifying it overlaps cars)
     const hero = snapshot.cars.find((c) => c.driverId === heroId);
-    if (hero && !hero.inPits) {
+    if (hero && !hero.inPits && snapshot.stage === "race") {
       const p = toScreen(hero.sFraction);
       ctx.fillStyle = "#fde047";
       ctx.font = "bold 12px system-ui, sans-serif";

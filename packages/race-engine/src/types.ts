@@ -29,6 +29,7 @@ export interface Driver {
   pitPlan: PitPlan;
   reactionTimeSec: number;
   paceFactor: number;
+  launchFactor: number;
 }
 
 export type PitStrategy = "flexible" | "fixed_lap";

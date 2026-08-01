@@ -27,17 +27,20 @@ export interface MakeDriverArgs {
   pitPlan?: PitPlan;
   reactionTimeSec?: number;
   paceFactor?: number;
+  launchFactor?: number;
   id?: string;
 }
 
-const clampPaceFactor = (v: number) => Math.max(0.98, Math.min(1.02, v));
+const clampPaceFactor = (v: number) => Math.max(0.975, Math.min(1.025, v));
+const clampLaunchFactor = (v: number) => Math.max(0.93, Math.min(1.07, v));
 
 export function makeDriver(args: MakeDriverArgs, rng?: Rng): Driver {
   const kind: DriverKind = args.kind ?? "human";
   const reactionTimeSec =
     args.reactionTimeSec ??
-    (kind === "bot" ? (rng ?? randomRng()).gauss(0.28, 0.08) : 0.25);
-  const paceFactor = args.paceFactor ?? (kind === "bot" ? clampPaceFactor((rng ?? randomRng()).gauss(1.0, 0.009)) : 1.0);
+    (kind === "bot" ? (rng ?? randomRng()).gauss(0.28, 0.1) : 0.25);
+  const paceFactor = args.paceFactor ?? (kind === "bot" ? clampPaceFactor((rng ?? randomRng()).gauss(1.0, 0.015)) : 1.0);
+  const launchFactor = args.launchFactor ?? (kind === "bot" ? clampLaunchFactor((rng ?? randomRng()).gauss(1.0, 0.03)) : 1.0);
   return {
     id: args.id ?? nextDriverId(),
     name: args.name,
@@ -54,6 +57,7 @@ export function makeDriver(args: MakeDriverArgs, rng?: Rng): Driver {
       },
     reactionTimeSec: Math.max(0.01, reactionTimeSec),
     paceFactor,
+    launchFactor,
   };
 }
 

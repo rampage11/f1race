@@ -1,7 +1,7 @@
 import { CONFIG } from "./config.js";
 import { fatigueFactor, paceSpeedMultiplier, passProbability, computeStartOutcome } from "./formula.js";
 import { mulberry32, type Rng } from "./rng.js";
-import { freshTyre, gripFor, wearDeltaForLap } from "./tyres.js";
+import { freshTyre, gripFor, wearDeltaForLap, estimateTyreLifespanLaps } from "./tyres.js";
 import { overtakingScoreAround, segmentAtS, trackLengthKm, trackLengthM } from "./track.js";
 import type {
   CarSnapshot,
@@ -195,7 +195,9 @@ export class RaceEngine {
     });
     const vTarget = this.lookaheadSpeed(sNorm, paceMult);
 
-    const accelLimit = CONFIG.physics.maxAccel + (car.bonusAccel > 0 && this.time - car.effectiveGoDelay < 3 ? car.bonusAccel : 0);
+    const sinceGo = this.time - car.effectiveGoDelay;
+    const launchBoost = sinceGo < 8 ? driver.launchFactor : 1;
+    const accelLimit = (CONFIG.physics.maxAccel + (car.bonusAccel > 0 && sinceGo < 3 ? car.bonusAccel : 0)) * launchBoost;
     if (car.v < vTarget) {
       car.v = Math.min(vTarget, car.v + accelLimit * dt);
     } else {
@@ -283,7 +285,9 @@ export class RaceEngine {
       const wornOut = car.tyre.wear >= cliff * 0.92;
       const lapsLeft = this.config.totalLaps - car.lap;
       const needStop = car.tyreStops < Math.max(1, plan.targetStops);
-      if (needStop && (wornOut || lapsLeft <= 1)) want = true;
+      const lifespan2 = estimateTyreLifespanLaps(compound, driver.skills.tyreMgmt, this.lapLengthKm);
+      const strategicWindow = lapsLeft <= lifespan2 + 1;
+      if (needStop && (wornOut || strategicWindow || lapsLeft <= 1)) want = true;
     }
     if (!want) return;
 
@@ -320,8 +324,13 @@ export class RaceEngine {
       if (car.pitTimer <= 0) {
         car.inPits = false;
         car.pitTimer = 0;
+        const lapsDone = Math.floor((car.s - car.initialS) / this.length);
+        car.s = car.initialS + (lapsDone + 1) * this.length + this.config.track.pitExitS;
         car.v = CONFIG.physics.pitApproachSpeed;
         this.pitRequests.delete(car.driverId);
+        if (car.s - car.initialS >= this.config.totalLaps * this.length) {
+          this.finishCar(car);
+        }
       }
     }
   }
@@ -500,22 +509,26 @@ export class RaceEngine {
     const ranked = [...this.cars].sort((a, b) => this.compareOnTrack(a, b));
     const leaderTime = ranked.find((c) => !c.dnf)?.raceTime ?? 0;
     const rows: RaceResultRow[] = ranked.map((c, i) => {
-      const violatedRule = !c.compoundChanged;
-      const rulePenalty = violatedRule ? 30 : 0;
-      if (violatedRule && c.finishPlace == null) {
+      const noStop = c.tyreStops < 1;
+      const wrongCompound = !c.compoundChanged;
+      if (noStop && c.finishPlace == null) {
+        this.pushEvent({ t: this.time, type: "info", message: `${this.driverOf(c).name}: дисквалификация — не заехал в боксы` });
+      } else if (!noStop && wrongCompound && c.finishPlace == null) {
         this.pushEvent({ t: this.time, type: "info", message: `${this.driverOf(c).name}: штраф 30с — не сменён состав резины` });
       }
+      const dsq = noStop;
+      const compoundPenalty = wrongCompound && !noStop ? 30 : 0;
       return {
         driverId: c.driverId,
         place: c.finishPlace ?? i + 1,
-        raceTime: c.raceTime + c.penaltySec + rulePenalty,
+        raceTime: dsq ? Number.POSITIVE_INFINITY : c.raceTime + c.penaltySec + compoundPenalty,
         bestLapTime: c.bestLapTime,
-        gapToLeader: Math.max(0, c.raceTime + rulePenalty - leaderTime),
+        gapToLeader: dsq ? 0 : Math.max(0, c.raceTime + compoundPenalty - leaderTime),
         tyreStops: c.tyreStops,
-        fastestLap: this.fastestLapDriverId === c.driverId,
+        fastestLap: !dsq && this.fastestLapDriverId === c.driverId,
         positionsGained: Math.max(0, c.gridPosition - (c.finishPlace ?? i + 1)),
         gridPosition: c.gridPosition,
-        dnf: c.dnf,
+        dnf: dsq || c.dnf,
       };
     });
     rows.sort((a, b) => a.raceTime - b.raceTime);
