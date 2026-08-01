@@ -74,27 +74,66 @@ export function TrackCanvas({ snapshot, heroId }: { snapshot: RaceSnapshot | nul
     ctx.fillRect(-16, -3, 32, 6);
     ctx.restore();
 
-    // pit entry marker
-    const pitFrac = track.pitEntryS / lengthM;
-    const pit = pathPointAt(path, cum, pitFrac);
+    // pit lane: parallel to the main straight (path[0] -> path[1]), offset toward the infield
+    const a = path[0]!;
+    const b = path[1]!;
+    const sdx = b.x - a.x;
+    const sdy = b.y - a.y;
+    const slen = Math.max(1e-6, Math.hypot(sdx, sdy));
+    let pnx = -sdy / slen;
+    let pny = sdx / slen;
+    const midX = (a.x + b.x) / 2;
+    const midY = (a.y + b.y) / 2;
+    const cenX = (bounds.minX + bounds.maxX) / 2;
+    const cenY = (bounds.minY + bounds.maxY) / 2;
+    if (pnx * (cenX - midX) + pny * (cenY - midY) < 0) {
+      pnx = -pnx;
+      pny = -pny;
+    }
+    const LANE = 40;
+    const T0 = 0.18;
+    const T1 = 0.82;
+    const pitA = { x: a.x + sdx * T0 + pnx * LANE, y: a.y + sdy * T0 + pny * LANE };
+    const pitB = { x: a.x + sdx * T1 + pnx * LANE, y: a.y + sdy * T1 + pny * LANE };
     ctx.beginPath();
-    ctx.arc(sx(pit.x), sy(pit.y), 6, 0, Math.PI * 2);
+    ctx.moveTo(sx(pitA.x), sy(pitA.y));
+    ctx.lineTo(sx(pitB.x), sy(pitB.y));
+    ctx.lineCap = "round";
+    ctx.lineWidth = 12;
+    ctx.strokeStyle = "#243049";
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(sx(pitA.x), sy(pitA.y));
+    ctx.lineTo(sx(pitB.x), sy(pitB.y));
+    ctx.lineWidth = 1;
+    ctx.setLineDash([6, 6]);
+    ctx.strokeStyle = "#64748b";
+    ctx.stroke();
+    ctx.setLineDash([]);
+    // pit boxes marks
+    for (let i = 0; i < 8; i++) {
+      const f = i / 7;
+      const px = pitA.x + (pitB.x - pitA.x) * f + pnx * 10;
+      const py = pitA.y + (pitB.y - pitA.y) * f + pny * 10;
+      ctx.fillStyle = "#334155";
+      ctx.fillRect(sx(px) - 4, sy(py) - 4, 8, 8);
+    }
     ctx.fillStyle = "#fbbf24";
-    ctx.fill();
-    ctx.fillStyle = "#fbbf24";
-    ctx.font = "11px system-ui, sans-serif";
-    ctx.fillText("PIT", sx(pit.x) + 8, sy(pit.y) - 6);
+    ctx.font = "bold 11px system-ui, sans-serif";
+    ctx.fillText("PIT LANE", sx(pitA.x) - 6, sy(pitA.y) - 10);
 
     if (!snapshot) return;
 
-    // infield center for cars sitting in the pits
-    const cx = sx((bounds.minX + bounds.maxX) / 2);
-    const cy = sy((bounds.minY + bounds.maxY) / 2);
+    const pitDelta = track.pitLaneDelta;
 
     for (const car of snapshot.cars) {
       let pos: { x: number; y: number; angle?: number };
       if (car.inPits) {
-        pos = { x: cx, y: cy };
+        const g = pitDelta > 0 ? Math.max(0, Math.min(1, 1 - car.pitTimer / pitDelta)) : 1;
+        const laneShift = ((car.gridPosition % 3) - 1) * 5;
+        const px = pitA.x + (pitB.x - pitA.x) * g + pnx * laneShift;
+        const py = pitA.y + (pitB.y - pitA.y) * g + pny * laneShift;
+        pos = { x: sx(px), y: sy(py) };
       } else {
         const p = toScreen(car.sFraction);
         pos = { x: p.x, y: p.y, angle: p.angle };

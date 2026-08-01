@@ -13,6 +13,12 @@ export const STARTING_SKILL_POINTS = 10;
 export const STARTING_SKILL_MAX = 5;
 export const ABSOLUTE_SKILL_MAX = 20;
 
+export const RACE = {
+  targetDistanceKm: 85,
+  minLaps: 8,
+  maxLaps: 30,
+} as const;
+
 export const CONFIG = {
   skills: {
     startingPoints: STARTING_SKILL_POINTS,

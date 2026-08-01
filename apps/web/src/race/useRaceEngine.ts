@@ -6,6 +6,7 @@ import {
   makeBot,
   makeDriver,
   mulberry32,
+  recommendedLaps,
   redBullRing,
   runQualifying,
   type Driver,
@@ -51,12 +52,14 @@ function buildGrid(drivers: Driver[], seed: number): Driver[] {
 }
 
 function makeEngine(seed: number, hero: HeroConfig): { engine: RaceEngine; heroId: string } {
+  const track = redBullRing();
+  const totalLaps = recommendedLaps(track);
   const { drivers, heroId } = createDrivers(seed, hero);
   const grid = buildGrid(drivers, seed);
   const cfg = buildRaceConfig({
-    track: redBullRing(),
+    track,
     drivers: grid,
-    totalLaps: 12,
+    totalLaps,
     seed: seed * 13 + 5,
     dt: 0.1,
     heroId,

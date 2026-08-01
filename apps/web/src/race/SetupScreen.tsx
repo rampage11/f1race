@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { SkillKey, Skills, TyreCompound } from "@f1race/race-engine";
-import { emptySkills, estimateTyreLifespanLaps, redBullRing } from "@f1race/race-engine";
+import { emptySkills, estimateTyreLifespanLaps, recommendedLaps, redBullRing } from "@f1race/race-engine";
 import type { HeroConfig } from "./useRaceEngine";
 import { teamColor, TYRE_COLORS, TYRE_LABEL } from "./colors";
 
@@ -63,6 +63,7 @@ export function SetupScreen({ onStart }: { onStart: (cfg: HeroConfig) => void })
   const [cfg, setCfg] = useState<HeroConfig>(DEFAULTS);
   const track = redBullRing();
   const lapKm = track.lengthM / 1000;
+  const laps = recommendedLaps(track);
   const lifespan = (c: TyreCompound) => estimateTyreLifespanLaps(c, cfg.skills.tyreMgmt, lapKm);
 
   const used = sum(cfg.skills);
@@ -85,7 +86,7 @@ export function SetupScreen({ onStart }: { onStart: (cfg: HeroConfig) => void })
     <div className="setup">
       <div className="setup-card">
         <h1>Создание пилота</h1>
-        <p className="sub">Формула 4 · Red Bull Ring · 12 кругов · 1 обязательный пит-стоп со сменой состава · без регистрации</p>
+        <p className="sub">Формула 4 · Red Bull Ring · {laps} кругов (~{Math.round(lapKm * laps)} км) · 1 обязательный пит-стоп со сменой состава · без регистрации</p>
 
         <label className="field">
           <span>Имя пилота</span>
@@ -172,28 +173,11 @@ export function SetupScreen({ onStart }: { onStart: (cfg: HeroConfig) => void })
           </div>
         </div>
 
-        <div className="field">
-          <span>Резина на пит-стопе <em className="lifespan-hint">≈ {lifespan(cfg.pitCompound)} кругов</em></span>
-          <div className="tyre-pick">
-            {(["soft", "medium", "hard"] as TyreCompound[]).map((c) => {
-              const same = c === cfg.startingTyre;
-              return (
-                <button
-                  key={c}
-                  className={`tyre-pick-btn ${c === cfg.pitCompound ? "selected" : ""}`}
-                  style={{ borderColor: c === cfg.pitCompound ? TYRE_COLORS[c] : undefined }}
-                  disabled={same}
-                  title={same ? "По правилу Ф1 нужно сменить состав" : undefined}
-                  onClick={() => setCfg({ ...cfg, pitCompound: c })}
-                >
-                  <span className="dot" style={{ background: TYRE_COLORS[c] }} />
-                  <span className="tyre-name">{TYRE_LABEL[c]}</span>
-                  <small className="tyre-life">~{lifespan(c)} кр</small>
-                </button>
-              );
-            })}
-          </div>
-          <p className="hint">Правило Ф1: за гонку нужно сменить состав. Soft быстр но недолговечен — обычно пит на ~{lifespan("soft")}-м круге.</p>
+        <div className="field strategy-note">
+          <span>Стратегия пит-стопа</span>
+          <p className="hint">
+            Состав на пит выбирается <strong>во время гонки</strong> (панель «Пит-стоп»). Soft быстр, но умирает через ~{lifespan("soft")} круг. — обычно питаться на {lifespan("soft")}-{lifespan("soft") + 1}-м круге. По правилу Ф1 состав нужно <strong>сменить</strong>.
+          </p>
         </div>
 
         <button className="start-btn" disabled={!canStart} onClick={() => onStart(cfg)}>

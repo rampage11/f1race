@@ -1,3 +1,4 @@
+import { CONFIG, RACE } from "./config.js";
 import type { PathPoint, Point2D, Track, TrackSegment } from "./types.js";
 
 export function trackLengthM(track: Track): number {
@@ -7,6 +8,19 @@ export function trackLengthM(track: Track): number {
 export function trackLengthKm(track: Track): number {
   return trackLengthM(track) / 1000;
 }
+
+export function recommendedLaps(
+  track: Track,
+  targetKm: number = RACE.targetDistanceKm,
+  minLaps: number = RACE.minLaps,
+  maxLaps: number = RACE.maxLaps,
+): number {
+  const lapKm = trackLengthKm(track);
+  const laps = Math.ceil(targetKm / lapKm);
+  return Math.max(minLaps, Math.min(maxLaps, laps));
+}
+
+void CONFIG;
 
 export function segmentIndexAtS(track: Track, s: number): { index: number; offset: number } {
   const total = trackLengthM(track);
