@@ -1,10 +1,10 @@
 import { useState } from "react";
+import type { PilotProfile } from "@f1race/race-engine";
 import { SetupScreen } from "./race/SetupScreen";
 import { RaceView } from "./race/RaceView";
-import type { HeroConfig } from "./race/useRaceEngine";
 
 export default function App() {
-  const [hero, setHero] = useState<HeroConfig | null>(null);
+  const [hero, setHero] = useState<PilotProfile | null>(null);
 
   if (!hero) {
     return (

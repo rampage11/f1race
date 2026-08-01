@@ -1,15 +1,17 @@
-import type { CarSnapshot, RaceSnapshot, TyreCompound } from "@f1race/race-engine";
+import type { TyreCompound } from "@f1race/race-engine";
 import { estimateTyreLifespanLaps, redBullRing, CONFIG } from "@f1race/race-engine";
+import type { SessionCar, SessionSnapshot } from "./useRaceSession";
 import { TYRE_COLORS, TYRE_LABEL } from "./colors";
 
 const COMPOUNDS: TyreCompound[] = ["soft", "medium", "hard"];
 const LAP_KM = redBullRing().lengthM / 1000;
 const PIT_DELTA = redBullRing().pitLaneDelta;
 
-function lapsLeft(car: CarSnapshot): number {
+function lapsLeft(car: SessionCar): number {
+  if (!car.tyreCompound) return 0;
   const cfg = CONFIG.tyres[car.tyreCompound];
   const total = cfg.cliff;
-  const remaining = Math.max(0, (total - car.tyreWear) / Math.max(0.0001, total / estimateTyreLifespanLaps(car.tyreCompound, 0, LAP_KM)));
+  const remaining = Math.max(0, (total - (car.tyreWear ?? 0)) / Math.max(0.0001, total / estimateTyreLifespanLaps(car.tyreCompound, 0, LAP_KM)));
   return Math.ceil(remaining);
 }
 
@@ -19,34 +21,35 @@ export function PitPanel({
   onPit,
   onCancel,
 }: {
-  snapshot: RaceSnapshot;
-  hero: CarSnapshot;
+  snapshot: SessionSnapshot;
+  hero: SessionCar;
   onPit: (c: TyreCompound) => void;
   onCancel: () => void;
 }) {
-  const disabled = snapshot.phase !== "racing" || hero.finished || hero.inPits;
-  const onCliff = hero.tyreWear >= CONFIG.tyres[hero.tyreCompound].cliff;
-  const currentCompound = hero.tyreCompound;
+  const disabled = snapshot.stage !== "race" || hero.finished || hero.inPits;
+  const compound = hero.tyreCompound ?? "medium";
+  const onCliff = (hero.tyreWear ?? 0) >= CONFIG.tyres[compound].cliff;
+  const currentCompound = compound;
   return (
     <section className="panel">
       <h3>Пит-стоп</h3>
       <div className="tyre-wear">
         <span>
-          Резина: {TYRE_LABEL[hero.tyreCompound]} · ≈ {lapsLeft(hero)} круг. до деградации
+          Резина: {TYRE_LABEL[compound]} · ≈ {lapsLeft(hero)} круг. до деградации
         </span>
         <div className={`bar ${onCliff ? "bar-cliff" : ""}`}>
           <div
             className="fill"
-            style={{ width: `${Math.round(hero.tyreWear * 100)}%`, background: onCliff ? "#ef4444" : TYRE_COLORS[hero.tyreCompound] }}
+            style={{ width: `${Math.round((hero.tyreWear ?? 0) * 100)}%`, background: onCliff ? "#ef4444" : TYRE_COLORS[compound] }}
           />
         </div>
         <small className={onCliff ? "warn-text" : ""}>
-          Износ {Math.round(hero.tyreWear * 100)}%{onCliff ? " — резина «поплыла», срочно питься!" : ""}
+          Износ {Math.round((hero.tyreWear ?? 0) * 100)}%{onCliff ? " — резина «поплыла», срочно питься!" : ""}
         </small>
       </div>
 
       {hero.inPits && (
-        <div className="pitting">В боксах… {hero.pitTimer.toFixed(1)} c</div>
+        <div className="pitting">В боксах… {(hero.pitTimer ?? 0).toFixed(1)} c</div>
       )}
       {hero.pitPending && !hero.inPits && (
         <div className="pending">Заезд на следующем круге</div>

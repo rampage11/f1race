@@ -157,6 +157,15 @@ export interface QualifyingResult {
   gridPosition: number;
 }
 
+export interface PilotProfile {
+  name: string;
+  country: string;
+  team: string;
+  skills: Skills;
+  startingTyre: TyreCompound;
+  pitCompound: TyreCompound;
+}
+
 export interface CarSnapshot {
   driverId: string;
   name: string;

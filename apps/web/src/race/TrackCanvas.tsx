@@ -4,8 +4,8 @@ import {
   pathCumulative,
   pathPointAt,
   redBullRing,
-  type RaceSnapshot,
 } from "@f1race/race-engine";
+import type { SessionSnapshot } from "./useRaceSession";
 import { teamColor, TYRE_COLORS } from "./colors";
 
 const W = 940;
@@ -13,7 +13,7 @@ const H = 620;
 const PAD = 36;
 const DOT_R = 9;
 
-export function TrackCanvas({ snapshot, heroId }: { snapshot: RaceSnapshot | null; heroId: string }) {
+export function TrackCanvas({ snapshot, heroId }: { snapshot: SessionSnapshot | null; heroId: string }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const track = redBullRing();
   const path = track.path2D;
@@ -142,9 +142,9 @@ export function TrackCanvas({ snapshot, heroId }: { snapshot: RaceSnapshot | nul
     const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
     const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 
-    const pitPosition = (car: { pitTimer: number; gridPosition: number }) => {
-      const g = pitDelta > 0 ? clamp01(1 - car.pitTimer / pitDelta) : 1;
-      const shift = ((car.gridPosition % 3) - 1) * 3;
+    const pitPosition = (car: { pitTimer?: number; gridPosition?: number | null }) => {
+      const g = pitDelta > 0 ? clamp01(1 - (car.pitTimer ?? 0) / pitDelta) : 1;
+      const shift = (((car.gridPosition ?? 1) ?? 1) % 3 - 1) * 3;
       const sxOff = inEntry.x * (shift / LANE);
       const syOff = inEntry.y * (shift / LANE);
       let fx: number;
@@ -187,8 +187,9 @@ export function TrackCanvas({ snapshot, heroId }: { snapshot: RaceSnapshot | nul
       ctx.stroke();
 
       // lateral lane offset during an overtake maneuver
-      if (typeof pos.angle === "number" && car.lateral > 0.05 && !car.inPits) {
-        const off = car.lateral * 16;
+      const lat = car.lateral ?? 0;
+      if (typeof pos.angle === "number" && lat > 0.05 && !car.inPits) {
+        const off = lat * 16;
         const lx = pos.x + -Math.sin(pos.angle) * off;
         const ly = pos.y + Math.cos(pos.angle) * off;
         ctx.beginPath();
@@ -200,17 +201,19 @@ export function TrackCanvas({ snapshot, heroId }: { snapshot: RaceSnapshot | nul
         ctx.stroke();
       }
 
-      // tyre-colored dot core to show compound
-      const coreX = car.lateral > 0.05 && typeof pos.angle === "number" && !car.inPits
-        ? pos.x + -Math.sin(pos.angle) * car.lateral * 16
-        : pos.x;
-      const coreY = car.lateral > 0.05 && typeof pos.angle === "number" && !car.inPits
-        ? pos.y + Math.cos(pos.angle) * car.lateral * 16
-        : pos.y;
-      ctx.beginPath();
-      ctx.arc(coreX, coreY, 3, 0, Math.PI * 2);
-      ctx.fillStyle = TYRE_COLORS[car.tyreCompound];
-      ctx.fill();
+      // tyre-colored dot core to show compound (race only)
+      if (car.tyreCompound) {
+        const coreX = lat > 0.05 && typeof pos.angle === "number" && !car.inPits
+          ? pos.x + -Math.sin(pos.angle) * lat * 16
+          : pos.x;
+        const coreY = lat > 0.05 && typeof pos.angle === "number" && !car.inPits
+          ? pos.y + Math.cos(pos.angle) * lat * 16
+          : pos.y;
+        ctx.beginPath();
+        ctx.arc(coreX, coreY, 3, 0, Math.PI * 2);
+        ctx.fillStyle = TYRE_COLORS[car.tyreCompound];
+        ctx.fill();
+      }
 
       if (car.blueFlag) {
         ctx.fillStyle = "#3b82f6";
@@ -225,13 +228,15 @@ export function TrackCanvas({ snapshot, heroId }: { snapshot: RaceSnapshot | nul
       const p = toScreen(hero.sFraction);
       ctx.fillStyle = "#fde047";
       ctx.font = "bold 12px system-ui, sans-serif";
-      ctx.fillText(`P${hero.position} ${hero.name}`, p.x + 12, p.y - 10);
+      const tag = hero.position != null ? `P${hero.position} ` : "";
+      ctx.fillText(`${tag}${hero.name}`, p.x + 12, p.y - 10);
     }
 
     // legend
     ctx.fillStyle = "#94a3b8";
     ctx.font = "12px system-ui, sans-serif";
-    ctx.fillText(`${track.name} · ${snapshot.totalLaps} кругов`, 12, H - 12);
+    const lapInfo = snapshot.totalLaps ? ` · ${snapshot.totalLaps} кругов` : "";
+    ctx.fillText(`${track.name}${lapInfo}`, 12, H - 12);
   }, [snapshot, heroId, path, cum, bounds, lengthM]);
 
   return (

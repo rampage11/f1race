@@ -213,6 +213,7 @@ input:focus, select:focus { outline: none; border-color: var(--accent); }
 
 /* ---------- Race extras ---------- */
 .brand .team-dot-inline { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin: 0 4px; vertical-align: middle; }
+.stage-badge { margin-left: 8px; padding: 2px 8px; border-radius: 6px; background: rgba(251,191,36,0.15); color: var(--accent); font-size: 12px; font-weight: 600; }
 button.ghost { background: transparent; }
 .overlay-actions { display: flex; gap: 8px; margin-top: 10px; }
 .overlay-actions button { flex: 1; }

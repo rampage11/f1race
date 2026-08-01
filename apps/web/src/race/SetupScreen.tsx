@@ -1,7 +1,6 @@
 import { useState } from "react";
-import type { SkillKey, Skills, TyreCompound } from "@f1race/race-engine";
+import type { PilotProfile, SkillKey, Skills, TyreCompound } from "@f1race/race-engine";
 import { emptySkills, estimateTyreLifespanLaps, recommendedLaps, redBullRing } from "@f1race/race-engine";
-import type { HeroConfig } from "./useRaceEngine";
 import { teamColor, TYRE_COLORS, TYRE_LABEL } from "./colors";
 
 const STARTING_POINTS = 10;
@@ -50,7 +49,7 @@ const TEAMS = [
   "Haas",
 ];
 
-const DEFAULTS: HeroConfig = {
+const DEFAULTS: PilotProfile = {
   name: "",
   country: "RU",
   team: "McLaren",
@@ -59,8 +58,8 @@ const DEFAULTS: HeroConfig = {
   pitCompound: "soft",
 };
 
-export function SetupScreen({ onStart }: { onStart: (cfg: HeroConfig) => void }) {
-  const [cfg, setCfg] = useState<HeroConfig>(DEFAULTS);
+export function SetupScreen({ onStart }: { onStart: (cfg: PilotProfile) => void }) {
+  const [cfg, setCfg] = useState<PilotProfile>(DEFAULTS);
   const track = redBullRing();
   const lapKm = track.lengthM / 1000;
   const laps = recommendedLaps(track);

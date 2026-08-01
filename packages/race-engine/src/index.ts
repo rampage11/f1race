@@ -5,6 +5,18 @@ export * from "./tyres.js";
 export * from "./track.js";
 export * from "./formula.js";
 export * from "./qualifying.js";
+export {
+  QualifyingEngine,
+  buildQualyConfig,
+  defaultSegments,
+  type QualyConfig,
+  type QualyPhase,
+  type QualyCarState,
+  type QualyCarSnapshot,
+  type QualyResultRow,
+  type QualySnapshot,
+  type QualySegment,
+} from "./qualifying-engine.js";
 export * from "./factory.js";
 export { RaceEngine } from "./engine.js";
 export type { EngineOptions } from "./engine.js";
