@@ -162,8 +162,8 @@ export function TrackCanvas({ snapshot, heroId }: { snapshot: SessionSnapshot | 
         fy = lerp(pitA.y, pitB.y, lf);
       } else {
         const t = (g - 0.85) / 0.15;
-        fx = lerp(pitB.x, exitPt.x, t);
-        fy = lerp(pitB.y, exitPt.y, t);
+        fx = lerp(pitB.x, entryPt.x, t);
+        fy = lerp(pitB.y, entryPt.y, t);
       }
       return { x: sx(fx + sxOff), y: sy(fy + syOff) };
     };

@@ -10,7 +10,7 @@ export function gripFor(t: TyreState): number {
   const w = Math.min(1, t.wear);
   const isCliff = w >= cfg.cliff;
   const deg = Math.pow(w / cfg.cliff, cfg.degCurve);
-  const base = isCliff ? cfg.gripFresh * (1 - 0.35 * Math.pow((w - cfg.cliff) / (1 - cfg.cliff), 2)) : cfg.gripFresh * (1 - 0.12 * deg);
+  const base = isCliff ? cfg.gripFresh * (1 - 0.35 * Math.pow((w - cfg.cliff) / (1 - cfg.cliff), 2)) : cfg.gripFresh * (1 - 0.03 * deg);
   return Math.max(CONFIG.tyres.minGrip, base);
 }
 

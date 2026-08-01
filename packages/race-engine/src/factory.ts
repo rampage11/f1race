@@ -26,14 +26,18 @@ export interface MakeDriverArgs {
   startingTyre: TyreCompound;
   pitPlan?: PitPlan;
   reactionTimeSec?: number;
+  paceFactor?: number;
   id?: string;
 }
+
+const clampPaceFactor = (v: number) => Math.max(0.985, Math.min(1.015, v));
 
 export function makeDriver(args: MakeDriverArgs, rng?: Rng): Driver {
   const kind: DriverKind = args.kind ?? "human";
   const reactionTimeSec =
     args.reactionTimeSec ??
     (kind === "bot" ? (rng ?? randomRng()).gauss(0.28, 0.08) : 0.25);
+  const paceFactor = args.paceFactor ?? (kind === "bot" ? clampPaceFactor((rng ?? randomRng()).gauss(1.0, 0.005)) : 1.0);
   return {
     id: args.id ?? nextDriverId(),
     name: args.name,
@@ -49,6 +53,7 @@ export function makeDriver(args: MakeDriverArgs, rng?: Rng): Driver {
         compound: args.startingTyre === "soft" ? "medium" : args.startingTyre === "medium" ? "soft" : "medium",
       },
     reactionTimeSec: Math.max(0.01, reactionTimeSec),
+    paceFactor,
   };
 }
 

@@ -185,10 +185,7 @@ export class RaceEngine {
 
     let pushLevel = this.effectivePushLevel(car);
     if (overtaking) pushLevel *= 1.06;
-    if (car.blueFlag) pushLevel *= 0.8;
-    if (car.defendingClose) pushLevel *= 1 - CONFIG.battle.defendPaceLossSec / this.t0;
-    if (car.attackingClose && !overtaking) pushLevel *= 1 - CONFIG.battle.attackPaceLossSec / this.t0;
-    const vTarget = seg.targetSpeed * paceSpeedMultiplier({
+    const vTarget = seg.targetSpeed * driver.paceFactor * paceSpeedMultiplier({
       paceSkill: driver.skills.pace,
       fitnessSkill: driver.skills.fitness,
       fatigue01,
@@ -308,10 +305,6 @@ export class RaceEngine {
       if (car.pitTimer <= 0) {
         car.inPits = false;
         car.pitTimer = 0;
-        const lapsDone = Math.floor((car.s - car.initialS) / this.length);
-        car.s = car.initialS + (lapsDone + 1) * this.length + this.config.track.pitExitS;
-        car.lap = lapsDone + 1;
-        car.lapStartTime = car.raceTime;
         car.v = CONFIG.physics.pitApproachSpeed;
         this.pitRequests.delete(car.driverId);
       }
@@ -360,15 +353,18 @@ export class RaceEngine {
       for (const other of this.cars) {
         if (other === car || other.inPits || other.finished || other.dnf) continue;
         const otherDist = this.distTravelled(other);
-        if (otherDist < carDist + len * 0.5) continue;
+        if (otherDist < carDist + len) continue;
         const otherFrac = fracOf(other.s);
         let behind = carFrac - otherFrac;
         if (behind < 0) behind += 1;
         const distM = behind * len;
-        if (distM <= 6 || distM >= len) continue;
+        if (distM <= 8 || distM >= len) continue;
         const gapSec = distM / Math.max(20, other.v);
-        if (gapSec < 3.0) {
+        if (gapSec < 2.5) {
           car.blueFlag = true;
+          const leaderLap = Math.floor(otherDist / len);
+          const advance = Math.min(len - 2, (carFrac + 0.012) * len);
+          other.s = other.initialS + leaderLap * len + advance;
           break;
         }
       }

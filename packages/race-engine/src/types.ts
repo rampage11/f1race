@@ -28,6 +28,7 @@ export interface Driver {
   startingTyre: TyreCompound;
   pitPlan: PitPlan;
   reactionTimeSec: number;
+  paceFactor: number;
 }
 
 export type PitStrategy = "flexible" | "fixed_lap";

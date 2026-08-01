@@ -24,6 +24,7 @@ export interface QualyCarState {
   country: string;
   kind: Driver["kind"];
   paceSkill: number;
+  paceFactor: number;
   startDelay: number;
   phase: QualyPhase;
   s: number;
@@ -116,6 +117,7 @@ export class QualifyingEngine {
       country: driver.country,
       kind: driver.kind,
       paceSkill: driver.skills.pace,
+      paceFactor: driver.paceFactor,
       startDelay: index * this.config.startIntervalSec,
       phase: "waiting",
       s: this.track.pitExitS,
@@ -163,7 +165,7 @@ export class QualifyingEngine {
     const sNorm = ((car.s % this.length) + this.length) % this.length;
     const seg = segmentAtS(this.track, sNorm);
     const push = car.phase === "outlap" ? OUTLAP_PUSH : car.phase === "hotlap" ? HOTLAP_PUSH : INLAP_PUSH;
-    const vTarget = seg.targetSpeed * paceSpeedMultiplier({
+    const vTarget = seg.targetSpeed * car.paceFactor * paceSpeedMultiplier({
       paceSkill: car.paceSkill,
       fitnessSkill: 10,
       fatigue01: 0,
