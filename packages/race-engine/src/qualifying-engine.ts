@@ -163,9 +163,8 @@ export class QualifyingEngine {
 
     this.updateNoise(car, dt);
     const sNorm = ((car.s % this.length) + this.length) % this.length;
-    const seg = segmentAtS(this.track, sNorm);
     const push = car.phase === "outlap" ? OUTLAP_PUSH : car.phase === "hotlap" ? HOTLAP_PUSH : INLAP_PUSH;
-    const vTarget = seg.targetSpeed * car.paceFactor * paceSpeedMultiplier({
+    const paceMult = car.paceFactor * paceSpeedMultiplier({
       paceSkill: car.paceSkill,
       fitnessSkill: 10,
       fatigue01: 0,
@@ -174,6 +173,7 @@ export class QualifyingEngine {
       t0: this.t0,
       noise: car.noiseFactor,
     });
+    const vTarget = this.lookaheadSpeed(sNorm, paceMult);
     if (car.v < vTarget) car.v = Math.min(vTarget, car.v + CONFIG.physics.maxAccel * dt);
     else car.v = Math.max(vTarget, car.v - CONFIG.physics.maxBrake * dt);
     car.v = Math.max(0, car.v);
@@ -212,6 +212,21 @@ export class QualifyingEngine {
       car.noiseFactor = this.rng.gauss(0, CONFIG.qualifying.noiseSigma);
       car.noiseTimer = this.rng.range(1.5, 3.0);
     }
+  }
+
+  private lookaheadSpeed(sNorm: number, paceMult: number): number {
+    const LOOKAHEAD = 280;
+    const STEP = 14;
+    const brake = CONFIG.physics.maxBrake;
+    let limit = Infinity;
+    for (let d = 0; d <= LOOKAHEAD; d += STEP) {
+      const s = (sNorm + d) % this.length;
+      const seg = segmentAtS(this.track, s);
+      const vSeg = seg.targetSpeed * paceMult;
+      const allowed = Math.sqrt(vSeg * vSeg + 2 * brake * d);
+      if (allowed < limit) limit = allowed;
+    }
+    return limit;
   }
 
   private finish(): void {

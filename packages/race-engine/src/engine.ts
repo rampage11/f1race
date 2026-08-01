@@ -167,7 +167,6 @@ export class RaceEngine {
     }
 
     const sNorm = ((car.s % this.length) + this.length) % this.length;
-    const seg = segmentAtS(this.config.track, sNorm);
     this.updateNoise(car, dt);
 
     const fatigue01 = fatigueFactor(Math.max(0, car.lap), this.config.totalLaps);
@@ -185,7 +184,7 @@ export class RaceEngine {
 
     let pushLevel = this.effectivePushLevel(car);
     if (overtaking) pushLevel *= 1.06;
-    const vTarget = seg.targetSpeed * driver.paceFactor * paceSpeedMultiplier({
+    const paceMult = driver.paceFactor * paceSpeedMultiplier({
       paceSkill: driver.skills.pace,
       fitnessSkill: driver.skills.fitness,
       fatigue01,
@@ -194,6 +193,7 @@ export class RaceEngine {
       t0: this.t0,
       noise: car.noiseFactor,
     });
+    const vTarget = this.lookaheadSpeed(sNorm, paceMult);
 
     const accelLimit = CONFIG.physics.maxAccel + (car.bonusAccel > 0 && this.time - car.effectiveGoDelay < 3 ? car.bonusAccel : 0);
     if (car.v < vTarget) {
@@ -237,6 +237,21 @@ export class RaceEngine {
 
   private effectivePushLevel(car: CarState): number {
     return car.pushLevel;
+  }
+
+  private lookaheadSpeed(sNorm: number, paceMult: number): number {
+    const LOOKAHEAD = 280;
+    const STEP = 14;
+    const brake = CONFIG.physics.maxBrake;
+    let limit = Infinity;
+    for (let d = 0; d <= LOOKAHEAD; d += STEP) {
+      const s = (sNorm + d) % this.length;
+      const seg = segmentAtS(this.config.track, s);
+      const vSeg = seg.targetSpeed * paceMult;
+      const allowed = Math.sqrt(vSeg * vSeg + 2 * brake * d);
+      if (allowed < limit) limit = allowed;
+    }
+    return limit;
   }
 
   private updateNoise(car: CarState, dt: number): void {
