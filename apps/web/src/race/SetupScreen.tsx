@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { SkillKey, Skills, TyreCompound } from "@f1race/race-engine";
+import { emptySkills, estimateTyreLifespanLaps, redBullRing } from "@f1race/race-engine";
 import type { HeroConfig } from "./useRaceEngine";
-import { emptySkills } from "@f1race/race-engine";
 import { teamColor, TYRE_COLORS, TYRE_LABEL } from "./colors";
 
 const STARTING_POINTS = 10;
@@ -61,6 +61,9 @@ const DEFAULTS: HeroConfig = {
 
 export function SetupScreen({ onStart }: { onStart: (cfg: HeroConfig) => void }) {
   const [cfg, setCfg] = useState<HeroConfig>(DEFAULTS);
+  const track = redBullRing();
+  const lapKm = track.lengthM / 1000;
+  const lifespan = (c: TyreCompound) => estimateTyreLifespanLaps(c, cfg.skills.tyreMgmt, lapKm);
 
   const used = sum(cfg.skills);
   const remaining = STARTING_POINTS - used;
@@ -82,7 +85,7 @@ export function SetupScreen({ onStart }: { onStart: (cfg: HeroConfig) => void })
     <div className="setup">
       <div className="setup-card">
         <h1>Создание пилота</h1>
-        <p className="sub">Формула 4 · Red Bull Ring · 20 кругов · без регистрации</p>
+        <p className="sub">Формула 4 · Red Bull Ring · 12 кругов · 1 обязательный пит-стоп со сменой состава · без регистрации</p>
 
         <label className="field">
           <span>Имя пилота</span>
@@ -148,37 +151,49 @@ export function SetupScreen({ onStart }: { onStart: (cfg: HeroConfig) => void })
         </div>
 
         <div className="field">
-          <span>Стартовая резина</span>
+          <span>Стартовая резина <em className="lifespan-hint">≈ {lifespan(cfg.startingTyre)} кругов до деградации</em></span>
           <div className="tyre-pick">
             {(["soft", "medium", "hard"] as TyreCompound[]).map((c) => (
               <button
                 key={c}
                 className={`tyre-pick-btn ${c === cfg.startingTyre ? "selected" : ""}`}
                 style={{ borderColor: c === cfg.startingTyre ? TYRE_COLORS[c] : undefined }}
-                onClick={() => setCfg({ ...cfg, startingTyre: c })}
+                onClick={() => {
+                  const next = { ...cfg, startingTyre: c };
+                  if (next.pitCompound === c) next.pitCompound = c === "soft" ? "medium" : "soft";
+                  setCfg(next);
+                }}
               >
                 <span className="dot" style={{ background: TYRE_COLORS[c] }} />
-                {TYRE_LABEL[c]}
+                <span className="tyre-name">{TYRE_LABEL[c]}</span>
+                <small className="tyre-life">~{lifespan(c)} кр</small>
               </button>
             ))}
           </div>
         </div>
 
         <div className="field">
-          <span>Резина на пит-стопе</span>
+          <span>Резина на пит-стопе <em className="lifespan-hint">≈ {lifespan(cfg.pitCompound)} кругов</em></span>
           <div className="tyre-pick">
-            {(["soft", "medium", "hard"] as TyreCompound[]).map((c) => (
-              <button
-                key={c}
-                className={`tyre-pick-btn ${c === cfg.pitCompound ? "selected" : ""}`}
-                style={{ borderColor: c === cfg.pitCompound ? TYRE_COLORS[c] : undefined }}
-                onClick={() => setCfg({ ...cfg, pitCompound: c })}
-              >
-                <span className="dot" style={{ background: TYRE_COLORS[c] }} />
-                {TYRE_LABEL[c]}
-              </button>
-            ))}
+            {(["soft", "medium", "hard"] as TyreCompound[]).map((c) => {
+              const same = c === cfg.startingTyre;
+              return (
+                <button
+                  key={c}
+                  className={`tyre-pick-btn ${c === cfg.pitCompound ? "selected" : ""}`}
+                  style={{ borderColor: c === cfg.pitCompound ? TYRE_COLORS[c] : undefined }}
+                  disabled={same}
+                  title={same ? "По правилу Ф1 нужно сменить состав" : undefined}
+                  onClick={() => setCfg({ ...cfg, pitCompound: c })}
+                >
+                  <span className="dot" style={{ background: TYRE_COLORS[c] }} />
+                  <span className="tyre-name">{TYRE_LABEL[c]}</span>
+                  <small className="tyre-life">~{lifespan(c)} кр</small>
+                </button>
+              );
+            })}
           </div>
+          <p className="hint">Правило Ф1: за гонку нужно сменить состав. Soft быстр но недолговечен — обычно пит на ~{lifespan("soft")}-м круге.</p>
         </div>
 
         <button className="start-btn" disabled={!canStart} onClick={() => onStart(cfg)}>

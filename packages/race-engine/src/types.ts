@@ -73,6 +73,13 @@ export interface CarState {
   noiseFactor: number;
   noiseTimer: number;
   trainSize: number;
+  blueFlag: boolean;
+  overtakingUntil: number;
+  overtakingTarget: string | null;
+  lateral: number;
+  compoundChanged: boolean;
+  defendingClose: boolean;
+  attackingClose: boolean;
 }
 
 export type SegmentKind = "straight" | "corner" | "pitlane";
@@ -171,6 +178,8 @@ export interface CarSnapshot {
   pitPending: boolean;
   falseStart: boolean;
   overtakeScore: number;
+  blueFlag: boolean;
+  lateral: number;
 }
 
 export interface RaceSnapshot {

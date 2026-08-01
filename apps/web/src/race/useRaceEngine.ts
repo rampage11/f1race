@@ -56,7 +56,7 @@ function makeEngine(seed: number, hero: HeroConfig): { engine: RaceEngine; heroI
   const cfg = buildRaceConfig({
     track: redBullRing(),
     drivers: grid,
-    totalLaps: 20,
+    totalLaps: 12,
     seed: seed * 13 + 5,
     dt: 0.1,
     heroId,

@@ -93,6 +93,13 @@ export class RaceEngine {
         noiseFactor: 0,
         noiseTimer: 0,
         trainSize: 0,
+        blueFlag: false,
+        overtakingUntil: 0,
+        overtakingTarget: null,
+        lateral: 0,
+        compoundChanged: false,
+        defendingClose: false,
+        attackingClose: false,
       };
       if (start.falseStart) {
         this.pushEvent({ t: 0, type: "false_start", driverId: driver.id });
@@ -117,6 +124,7 @@ export class RaceEngine {
     for (const car of this.cars) this.stepCar(car, dt);
     this.handlePits(dt);
     this.updatePositionsAndTrains();
+    this.updateBlueFlags();
     this.handleBattles(dt);
     if (this.allFinished()) this.finishRace();
   }
@@ -135,6 +143,8 @@ export class RaceEngine {
   }
 
   requestPit(driverId: string, compound: TyreCompound): void {
+    const car = this.cars.find((c) => c.driverId === driverId);
+    if (car && car.tyre.compound === compound) return;
     this.pitRequests.set(driverId, compound);
   }
 
@@ -163,11 +173,26 @@ export class RaceEngine {
     const fatigue01 = fatigueFactor(Math.max(0, car.lap), this.config.totalLaps);
     car.fatigue = fatigue01;
 
+    if (car.overtakingTarget && this.time >= car.overtakingUntil) {
+      const target = this.cars.find((c) => c.driverId === car.overtakingTarget);
+      if (!target || this.distTravelled(car) >= this.distTravelled(target) - 1) {
+        car.overtakingTarget = null;
+      }
+    }
+    const overtaking = this.time < car.overtakingUntil;
+    const targetLateral = overtaking || car.overtakingTarget ? 1 : 0;
+    car.lateral += (targetLateral - car.lateral) * Math.min(1, dt * 4.5);
+
+    let pushLevel = this.effectivePushLevel(car);
+    if (overtaking) pushLevel *= 1.06;
+    if (car.blueFlag) pushLevel *= 0.8;
+    if (car.defendingClose) pushLevel *= 1 - CONFIG.battle.defendPaceLossSec / this.t0;
+    if (car.attackingClose && !overtaking) pushLevel *= 1 - CONFIG.battle.attackPaceLossSec / this.t0;
     const vTarget = seg.targetSpeed * paceSpeedMultiplier({
       paceSkill: driver.skills.pace,
       fitnessSkill: driver.skills.fitness,
       fatigue01,
-      pushLevel: this.effectivePushLevel(car),
+      pushLevel,
       tyre: car.tyre,
       t0: this.t0,
       noise: car.noiseFactor,
@@ -203,7 +228,7 @@ export class RaceEngine {
         car.tyre.ageLaps += 1;
         const wear = wearDeltaForLap(car.tyre, this.lapLengthKm, driver.skills.tyreMgmt);
         car.tyre.wear = Math.min(1, car.tyre.wear + wear);
-        if (car.lap >= this.config.totalLaps + 1) {
+        if (car.lap >= this.config.totalLaps) {
           this.finishCar(car);
           return;
         }
@@ -237,20 +262,12 @@ export class RaceEngine {
     if (requested) {
       want = true;
       compound = requested;
-    } else if (driver.kind === "human") {
-      const lapsLeft = this.config.totalLaps - car.lap;
-      const dead = car.tyre.wear >= 0.97;
-      if (car.tyreStops === 0 && (lapsLeft <= 0 || dead)) want = true;
     } else {
-      if (car.tyreStops >= Math.max(1, plan.targetStops)) return;
-      if (plan.strategy === "fixed_lap" && plan.lap != null) {
-        want = car.lap >= plan.lap;
-      } else {
-        const cliff = CONFIG.tyres[car.tyre.compound].cliff;
-        want = car.tyre.wear >= cliff * 0.92;
-        const lapsLeft = this.config.totalLaps - car.lap;
-        if (lapsLeft <= 1 && car.tyreStops === 0) want = true;
-      }
+      const cliff = CONFIG.tyres[car.tyre.compound].cliff;
+      const wornOut = car.tyre.wear >= cliff * 0.92;
+      const lapsLeft = this.config.totalLaps - car.lap;
+      const needStop = car.tyreStops < Math.max(1, plan.targetStops);
+      if (needStop && (wornOut || lapsLeft <= 1)) want = true;
     }
     if (!want) return;
 
@@ -271,7 +288,9 @@ export class RaceEngine {
       car.raceTime += dt;
       car.pitLaneTimeTotal += dt;
       if (car.pitTimer <= this.config.track.pitLaneDelta - this.config.track.pitStopDuration && car.pendingTyre) {
+        const oldCompound = car.tyre.compound;
         car.tyre = freshTyre(car.pendingTyre);
+        if (car.pendingTyre !== oldCompound) car.compoundChanged = true;
         this.pushEvent({
           t: this.time,
           type: "pit_stop",
@@ -298,12 +317,53 @@ export class RaceEngine {
 
     for (const car of ranked) {
       let train = 0;
+      let attacking = false;
+      let defending = false;
       for (const other of ranked) {
         if (other === car) continue;
-        const gapSec = this.gapBetweenSec(other, car);
-        if (gapSec > 0 && gapSec < CONFIG.battle.closeGapSec) train++;
+        const gAhead = this.gapBetweenSec(other, car);
+        const gBehind = this.gapBetweenSec(car, other);
+        if (gAhead > 0 && gAhead < CONFIG.battle.closeGapSec) {
+          attacking = true;
+          train++;
+        }
+        if (gBehind > 0 && gBehind < CONFIG.battle.closeGapSec) {
+          defending = true;
+          train++;
+        }
       }
       car.trainSize = train;
+      car.attackingClose = attacking;
+      car.defendingClose = defending;
+    }
+  }
+
+  private updateBlueFlags(): void {
+    const len = this.length;
+    const fracOf = (s: number) => {
+      const n = ((s % len) + len) % len;
+      return n / len;
+    };
+    for (const car of this.cars) {
+      car.blueFlag = false;
+      if (car.inPits || car.finished || car.dnf) continue;
+      const carDist = this.distTravelled(car);
+      const carFrac = fracOf(car.s);
+      for (const other of this.cars) {
+        if (other === car || other.inPits || other.finished || other.dnf) continue;
+        const otherDist = this.distTravelled(other);
+        if (otherDist < carDist + len * 0.5) continue;
+        const otherFrac = fracOf(other.s);
+        let behind = carFrac - otherFrac;
+        if (behind < 0) behind += 1;
+        const distM = behind * len;
+        if (distM <= 6 || distM >= len) continue;
+        const gapSec = distM / Math.max(20, other.v);
+        if (gapSec < 3.0) {
+          car.blueFlag = true;
+          break;
+        }
+      }
     }
   }
 
@@ -344,6 +404,8 @@ export class RaceEngine {
     for (let i = 0; i < ranked.length - 1; i++) {
       const behind = ranked[i + 1]!;
       const ahead = ranked[i]!;
+      if (this.time < behind.overtakingUntil) continue;
+      if (behind.overtakingTarget) continue;
       const gap = this.gapBetweenSec(ahead, behind);
       if (gap > CONFIG.battle.attackGapSec) continue;
       if (behind.battleCooldown > 0) continue;
@@ -358,7 +420,6 @@ export class RaceEngine {
   private attemptOvertake(ahead: CarState, behind: CarState): void {
     const b = CONFIG.battle;
     const behindDriver = this.driverOf(behind);
-    const aheadDriver = this.driverOf(ahead);
     const sNorm = ((behind.s % this.length) + this.length) % this.length;
     const ov = overtakingScoreAround(this.config.track, sNorm);
     if (ov < 0.25) {
@@ -367,6 +428,7 @@ export class RaceEngine {
     }
     const paceDeltaMs = behind.v - ahead.v;
     const tyreAdv = gripFor(behind.tyre) - gripFor(ahead.tyre);
+    const aheadDriver = this.driverOf(ahead);
     const p = passProbability({
       paceDeltaMs,
       attackSkill: behindDriver.skills.attack,
@@ -378,8 +440,8 @@ export class RaceEngine {
     });
     behind.battleCooldown = b.attackCooldownSec;
     if (this.rng.bool(p)) {
-      const swap = ahead.s + 0.5;
-      behind.s = swap;
+      behind.overtakingUntil = this.time + 5;
+      behind.overtakingTarget = ahead.driverId;
       behind.overtakeScore += 1;
       ahead.defendScore += 1;
       this.pushEvent({
@@ -418,18 +480,27 @@ export class RaceEngine {
   result(): RaceResult {
     const ranked = [...this.cars].sort((a, b) => this.compareOnTrack(a, b));
     const leaderTime = ranked.find((c) => !c.dnf)?.raceTime ?? 0;
-    const rows: RaceResultRow[] = ranked.map((c, i) => ({
-      driverId: c.driverId,
-      place: c.finishPlace ?? i + 1,
-      raceTime: c.raceTime + c.penaltySec,
-      bestLapTime: c.bestLapTime,
-      gapToLeader: Math.max(0, c.raceTime - leaderTime),
-      tyreStops: c.tyreStops,
-      fastestLap: this.fastestLapDriverId === c.driverId,
-      positionsGained: Math.max(0, c.gridPosition - (c.finishPlace ?? i + 1)),
-      gridPosition: c.gridPosition,
-      dnf: c.dnf,
-    }));
+    const rows: RaceResultRow[] = ranked.map((c, i) => {
+      const violatedRule = !c.compoundChanged;
+      const rulePenalty = violatedRule ? 30 : 0;
+      if (violatedRule && c.finishPlace == null) {
+        this.pushEvent({ t: this.time, type: "info", message: `${this.driverOf(c).name}: штраф 30с — не сменён состав резины` });
+      }
+      return {
+        driverId: c.driverId,
+        place: c.finishPlace ?? i + 1,
+        raceTime: c.raceTime + c.penaltySec + rulePenalty,
+        bestLapTime: c.bestLapTime,
+        gapToLeader: Math.max(0, c.raceTime + rulePenalty - leaderTime),
+        tyreStops: c.tyreStops,
+        fastestLap: this.fastestLapDriverId === c.driverId,
+        positionsGained: Math.max(0, c.gridPosition - (c.finishPlace ?? i + 1)),
+        gridPosition: c.gridPosition,
+        dnf: c.dnf,
+      };
+    });
+    rows.sort((a, b) => a.raceTime - b.raceTime);
+    rows.forEach((r, i) => (r.place = i + 1));
     return { rows, fastestLapDriverId: this.fastestLapDriverId, events: this.events };
   }
 
@@ -463,6 +534,8 @@ export class RaceEngine {
         pitPending: this.pitRequests.has(c.driverId),
         falseStart: c.falseStart,
         overtakeScore: c.overtakeScore,
+        blueFlag: c.blueFlag,
+        lateral: c.lateral,
       };
     });
     return {

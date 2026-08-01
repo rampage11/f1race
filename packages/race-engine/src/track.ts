@@ -84,7 +84,8 @@ export function pathBounds(path: Point2D[]): { minX: number; minY: number; maxX:
 }
 
 export function redBullRing(): Track {
-  const segments: TrackSegment[] = [
+  const SCALE = 1.7;
+  const raw: TrackSegment[] = [
     seg("straight", 1100, 85, 1.0),
     seg("corner", 100, 35, 0.8),
     seg("straight", 380, 78, 0.3),
@@ -98,6 +99,7 @@ export function redBullRing(): Track {
     seg("corner", 90, 40, 0.2),
     seg("straight", 518, 72, 0.5),
   ];
+  const segments = raw.map((s) => ({ ...s, length: Math.round(s.length * SCALE) }));
   const length = segments.reduce((s, x) => s + x.length, 0);
   const path2D: Point2D[] = [
     { x: 120, y: 700 },
@@ -119,9 +121,9 @@ export function redBullRing(): Track {
     lengthM: length,
     segments,
     path2D,
-    pitLaneDelta: 22,
+    pitLaneDelta: 24,
     pitStopDuration: 3.0,
     pitEntryS: 1000,
-    laps: 20,
+    laps: 12,
   };
 }

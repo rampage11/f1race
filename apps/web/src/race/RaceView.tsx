@@ -65,9 +65,24 @@ export function RaceView({ hero, onChangeDriver }: { hero: HeroConfig; onChangeD
   );
 }
 
+function ResultRow({ r, heroId }: { r: { driverId: string; place: number; gridPosition: number; raceTime: number; tyreStops: number; bestLapTime: number | null; fastestLap: boolean }; heroId: string }) {
+  return (
+    <tr className={r.driverId === heroId ? "hero" : ""}>
+      <td>{r.place}</td>
+      <td>{r.gridPosition}</td>
+      <td>{formatRaceTime(r.raceTime)}</td>
+      <td>{r.tyreStops} пит</td>
+      <td>{r.bestLapTime ? `${r.bestLapTime.toFixed(2)}${r.fastestLap ? " ⚡" : ""}` : "—"}</td>
+    </tr>
+  );
+}
+
 function ResultSummary({ race }: { race: ReturnType<typeof useRaceEngine> }) {
   if (!race.result) return null;
   const heroRow = race.result.rows.find((r) => r.driverId === race.heroId);
+  const top = race.result.rows.slice(0, 10);
+  const heroInTop = top.some((r) => r.driverId === race.heroId);
+  const heroExtra = !heroInTop && heroRow ? heroRow : null;
   return (
     <div className="result">
       <p className="result-headline">
@@ -80,15 +95,13 @@ function ResultSummary({ race }: { race: ReturnType<typeof useRaceEngine> }) {
           <tr><th>М</th><th>Старт</th><th>Время</th><th>Питы</th><th>Лучший круг</th></tr>
         </thead>
         <tbody>
-          {race.result.rows.slice(0, 10).map((r) => (
-            <tr key={r.driverId} className={r.driverId === race.heroId ? "hero" : ""}>
-              <td>{r.place}</td>
-              <td>{r.gridPosition}</td>
-              <td>{formatRaceTime(r.raceTime)}</td>
-              <td>{r.tyreStops}</td>
-              <td>{r.bestLapTime ? `${r.bestLapTime.toFixed(2)}${r.fastestLap ? " ⚡" : ""}` : "—"}</td>
-            </tr>
-          ))}
+          {top.map((r) => <ResultRow key={r.driverId} r={r} heroId={race.heroId} />)}
+          {heroExtra && (
+            <>
+              <tr className="ellipsis"><td colSpan={5}>…</td></tr>
+              <ResultRow r={heroExtra} heroId={race.heroId} />
+            </>
+          )}
         </tbody>
       </table>
     </div>

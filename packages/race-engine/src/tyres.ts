@@ -35,3 +35,16 @@ export function tyrePacePenaltySec(t: TyreState): number {
 export function compoundPaceBonusSec(compound: TyreCompound): number {
   return CONFIG.tyres[compound].paceBonusSec;
 }
+
+export function estimateTyreLifespanLaps(
+  compound: TyreCompound,
+  tyreMgmt: number,
+  lapLengthKm: number,
+): number {
+  const cfg = CONFIG.tyres[compound];
+  const reduction = 1 - CONFIG.tyres.tyreMgmtReductionPerPoint * Math.max(0, tyreMgmt);
+  const clampedReduction = Math.max(0.55, reduction);
+  const wearPerLap = cfg.wearPerKm * lapLengthKm * clampedReduction;
+  if (wearPerLap <= 0) return 999;
+  return Math.max(1, Math.floor(cfg.cliff / wearPerLap));
+}

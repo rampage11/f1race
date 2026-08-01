@@ -1,5 +1,5 @@
 import { CONFIG } from "./config.js";
-import { gripFor, tyrePacePenaltySec } from "./tyres.js";
+import { compoundPaceBonusSec, gripFor, tyrePacePenaltySec } from "./tyres.js";
 import type { Skills, Track, TyreState } from "./types.js";
 
 export function baseLapTime(track: Track): number {
@@ -25,7 +25,8 @@ export function paceSpeedMultiplier(input: PaceInputs): number {
   const paceBonusSec = -CONFIG.pace.skillSecondsPerPoint * input.paceSkill;
   const fatigueSec = CONFIG.pace.fatiguePaceSecPerPoint * (10 - input.fitnessSkill) * Math.max(0, input.fatigue01);
   const tyrePenalty = tyrePacePenaltySec(input.tyre);
-  const totalBonus = paceBonusSec + fatigueSec + tyrePenalty;
+  const compoundPenalty = compoundPaceBonusSec(input.tyre.compound);
+  const totalBonus = paceBonusSec + fatigueSec + tyrePenalty + compoundPenalty;
   const mult = speedMultFromLapBonus(totalBonus, input.t0);
   const grip = gripFor(input.tyre);
   return mult * grip * input.pushLevel * (1 + input.noise);

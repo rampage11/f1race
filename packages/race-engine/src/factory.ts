@@ -45,7 +45,8 @@ export function makeDriver(args: MakeDriverArgs, rng?: Rng): Driver {
     pitPlan:
       args.pitPlan ?? {
         targetStops: 1,
-        compound: args.startingTyre === "soft" ? "medium" : "soft",
+        strategy: "flexible",
+        compound: args.startingTyre === "soft" ? "medium" : args.startingTyre === "medium" ? "soft" : "medium",
       },
     reactionTimeSec: Math.max(0.01, reactionTimeSec),
   };
@@ -70,7 +71,7 @@ export function randomRng(): Rng {
 }
 
 export function makeBot(args: Partial<MakeDriverArgs>, rng: Rng): Driver {
-  const extraPoints = Math.round(rng.range(0, 12));
+  const extraPoints = Math.round(rng.range(0, 5));
   const skills: Skills = { ...emptySkills() };
   let remaining = STARTING_SKILL_POINTS + extraPoints;
   while (remaining > 0) {
@@ -82,6 +83,9 @@ export function makeBot(args: Partial<MakeDriverArgs>, rng: Rng): Driver {
   }
   const first = args.name?.split(" ")[0] ?? rng.pick(FIRST_NAMES);
   const last = args.name?.split(" ")[1] ?? rng.pick(LAST_NAMES);
+  const startingTyre = args.startingTyre ?? rng.pick(COMPOUNDS);
+  const pitOptions = COMPOUNDS.filter((c) => c !== startingTyre);
+  const pitCompound = rng.pick(pitOptions);
   return makeDriver(
     {
       name: `${first} ${last}`,
@@ -89,7 +93,8 @@ export function makeBot(args: Partial<MakeDriverArgs>, rng: Rng): Driver {
       kind: "bot",
       team: args.team ?? rng.pick(TEAMS),
       skills,
-      startingTyre: args.startingTyre ?? rng.pick(COMPOUNDS),
+      startingTyre,
+      pitPlan: { targetStops: 1, strategy: "flexible", compound: pitCompound },
     },
     rng,
   );

@@ -92,12 +92,12 @@ export function TrackCanvas({ snapshot, heroId }: { snapshot: RaceSnapshot | nul
     const cy = sy((bounds.minY + bounds.maxY) / 2);
 
     for (const car of snapshot.cars) {
-      let pos: { x: number; y: number };
+      let pos: { x: number; y: number; angle?: number };
       if (car.inPits) {
         pos = { x: cx, y: cy };
       } else {
         const p = toScreen(car.sFraction);
-        pos = { x: p.x, y: p.y };
+        pos = { x: p.x, y: p.y, angle: p.angle };
       }
       const r = DOT_R;
       ctx.beginPath();
@@ -108,11 +108,37 @@ export function TrackCanvas({ snapshot, heroId }: { snapshot: RaceSnapshot | nul
       ctx.strokeStyle = car.driverId === heroId ? "#fde047" : "#0b1220";
       ctx.stroke();
 
+      // lateral lane offset during an overtake maneuver
+      if (typeof pos.angle === "number" && car.lateral > 0.05 && !car.inPits) {
+        const off = car.lateral * 16;
+        const lx = pos.x + -Math.sin(pos.angle) * off;
+        const ly = pos.y + Math.cos(pos.angle) * off;
+        ctx.beginPath();
+        ctx.arc(lx, ly, r * 0.9, 0, Math.PI * 2);
+        ctx.fillStyle = car.finished ? "#334155" : teamColor(car.team);
+        ctx.fill();
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = "#0b1220";
+        ctx.stroke();
+      }
+
       // tyre-colored dot core to show compound
+      const coreX = car.lateral > 0.05 && typeof pos.angle === "number" && !car.inPits
+        ? pos.x + -Math.sin(pos.angle) * car.lateral * 16
+        : pos.x;
+      const coreY = car.lateral > 0.05 && typeof pos.angle === "number" && !car.inPits
+        ? pos.y + Math.cos(pos.angle) * car.lateral * 16
+        : pos.y;
       ctx.beginPath();
-      ctx.arc(pos.x, pos.y, 3, 0, Math.PI * 2);
+      ctx.arc(coreX, coreY, 3, 0, Math.PI * 2);
       ctx.fillStyle = TYRE_COLORS[car.tyreCompound];
       ctx.fill();
+
+      if (car.blueFlag) {
+        ctx.fillStyle = "#3b82f6";
+        ctx.font = "10px system-ui, sans-serif";
+        ctx.fillText("🔵", pos.x - 5, pos.y - 12);
+      }
     }
 
     // hero label

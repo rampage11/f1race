@@ -193,6 +193,15 @@ input:focus, select:focus { outline: none; border-color: var(--accent); }
 }
 .tyre-pick-btn.selected { border-width: 2px; }
 .tyre-pick-btn .dot { width: 12px; height: 12px; border-radius: 50%; border: 1px solid #0008; }
+.tyre-pick-btn .tyre-name { font-size: 13px; }
+.tyre-pick-btn .tyre-life { font-size: 10px; color: var(--muted); }
+.tyre-pick-btn { flex-direction: column; gap: 2px; padding: 8px 6px; }
+.lifespan-hint { font-style: normal; text-transform: none; color: var(--muted); font-size: 11px; font-weight: 400; }
+
+.bar.bar-cliff { animation: cliffpulse 0.8s infinite alternate; }
+@keyframes cliffpulse { from { box-shadow: 0 0 0 0 rgba(239,68,68,0.0); } to { box-shadow: 0 0 0 3px rgba(239,68,68,0.5); } }
+
+.result tr.ellipsis td { text-align: center; color: var(--muted); border-bottom: 1px dashed var(--line); }
 
 .start-btn {
   width: 100%; margin-top: 6px;

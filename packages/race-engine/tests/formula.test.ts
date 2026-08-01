@@ -7,6 +7,7 @@ import {
   freshTyre,
   wearDeltaForLap,
   isCliff,
+  compoundPaceBonusSec,
   passProbability,
   paceSpeedMultiplier,
   computeStartOutcome,
@@ -32,8 +33,10 @@ describe("skills allocation", () => {
 });
 
 describe("tyres", () => {
-  it("fresh soft has higher grip than fresh hard", () => {
-    expect(gripFor(freshTyre("soft"))).toBeGreaterThan(gripFor(freshTyre("hard")));
+  it("fresh compounds have equal grip; soft has smaller pace penalty than hard", () => {
+    expect(gripFor(freshTyre("soft"))).toBeCloseTo(gripFor(freshTyre("hard")), 5);
+    expect(compoundPaceBonusSec("soft")).toBeLessThan(compoundPaceBonusSec("medium"));
+    expect(compoundPaceBonusSec("medium")).toBeLessThan(compoundPaceBonusSec("hard"));
   });
 
   it("wear grows and eventually hits the cliff", () => {
@@ -66,6 +69,14 @@ describe("pace", () => {
     t0: 63,
     noise: 0,
   };
+  it("pace speed multiplier: soft faster baseline, hard penalised", () => {
+    const soft = paceSpeedMultiplier({ ...base, tyre: freshTyre("soft") });
+    const medium = paceSpeedMultiplier({ ...base, tyre: freshTyre("medium") });
+    const hard = paceSpeedMultiplier({ ...base, tyre: freshTyre("hard") });
+    expect(soft).toBeGreaterThan(medium);
+    expect(medium).toBeGreaterThan(hard);
+  });
+
   it("higher pace skill yields higher speed multiplier", () => {
     const low = paceSpeedMultiplier({ ...base, paceSkill: 0 });
     const high = paceSpeedMultiplier({ ...base, paceSkill: 10 });
