@@ -10,8 +10,6 @@ import { LobbyScreen } from "./LobbyScreen";
 import { useRaceSession } from "./useRaceSession";
 import type { RaceProgression } from "./useRaceSession";
 
-const SPEEDS = [2, 6, 12, 24];
-
 function teamColorOf(team: string): string {
   const map: Record<string, string> = {
     "Red Bull": "#1E3A8A", Ferrari: "#DC2626", Mercedes: "#00A19B", McLaren: "#F97316",
@@ -69,19 +67,6 @@ export function RaceView({ hero, guestId, onChangeDriver }: { hero: PilotProfile
           >
             {s.paused ? "▶ Играть" : "❚❚ Пауза"}
           </button>
-          <div className="speeds">
-            {SPEEDS.map((sp) => (
-              <button
-                key={sp}
-                className={sp === s.speed ? "active" : ""}
-                onClick={() => s.setSpeed(sp)}
-                disabled={mpLocked}
-                title={mpLocked ? mpLockTitle : undefined}
-              >
-                {sp}×
-              </button>
-            ))}
-          </div>
           <button className="restart" onClick={s.restart}>↻ Заново</button>
           <button className="ghost" onClick={onChangeDriver}>Сменить пилота</button>
         </div>
