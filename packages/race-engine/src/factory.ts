@@ -62,14 +62,14 @@ export function makeDriver(args: MakeDriverArgs, rng?: Rng): Driver {
 }
 
 const FIRST_NAMES = [
-  "Max", "Lewis", "Charles", "Lando", "Carlos", "George", "Fernando", "Pierre",
-  "Esteban", "Yuki", "Valtteri", "Sergio", "Oscar", "Alex", "Lance", "Nico",
-  "Kevin", "Zhou", "Logan", "Daniel",
+  "Mateo", "Thiago", "Enzo", "Lorenzo", "Rafael", "Diego", "Hugo", "Noah",
+  "Felix", "Anton", "Kai", "Magnus", "Henrik", "Dmitri", "Riku", "Kenji",
+  "Haruto", "Wei", "Jin", "Arjun",
 ];
 const LAST_NAMES = [
-  "Verstappen", "Hamilton", "Leclerc", "Norris", "Sainz", "Russell", "Alonso",
-  "Gasly", "Ocon", "Tsunoda", "Bottas", "Perez", "Piastri", "Albon", "Stroll",
-  "Hulkenberg", "Magnussen", "Guanyu", "Sargeant", "Ricciardo",
+  "Moreno", "Ribeiro", "Vargas", "Castillo", "Aguiar", "Bergström", "Lindqvist",
+  "Halvorsen", "Korhonen", "Volkov", "Novák", "Fischer", "Wagner", "Moreau",
+  "Conti", "Marchetti", "Tanaka", "Nakamura", "Chen", "Park",
 ];
 const COUNTRIES = ["NL", "GB", "MC", "ES", "FR", "JP", "FI", "MX", "AU", "TH", "CA", "DE", "DK", "CN", "US"];
 const TEAMS = ["Red Bull", "Ferrari", "Mercedes", "McLaren", "Aston Martin", "Alpine", "Williams", "AlphaTauri", "Sauber", "Haas"];

@@ -47,13 +47,20 @@ export interface BattleInputs {
   trainSize: number;
   overtakingScore: number;
   attackerAlreadyAhead: boolean;
+  lapDelta: number;
 }
 
 export function passProbability(input: BattleInputs): number {
   const b = CONFIG.battle;
   const paceTerm = input.paceDeltaMs * b.paceDeltaWeight;
-  const adTerm = (input.attackSkill - input.defenseSkill) * b.attackDefenseWeight;
   const tyreTerm = input.tyreAdvantage * b.tyreAdvantageWeight;
+  if (input.lapDelta >= 1) {
+    const bf = CONFIG.blueFlag;
+    let p = bf.lappedBasePassProb + paceTerm + tyreTerm;
+    p *= Math.pow(input.overtakingScore, b.overtakeDifficultyWeight);
+    return Math.max(bf.lappedProbFloor, Math.min(b.probCeil, p));
+  }
+  const adTerm = (input.attackSkill - input.defenseSkill) * b.attackDefenseWeight;
   const trainTerm = input.trainSize * b.trainSizeWeight;
   let p =
     b.basePassProb +
@@ -139,4 +146,27 @@ export function xpForRace(args: {
 
 export function skillSum(s: Skills): number {
   return s.fitness + s.reaction + s.attack + s.defense + s.pace + s.tyreMgmt;
+}
+
+// Guard against pathological inputs / runaway loops on absurd XP values.
+const MAX_LEVEL = 999;
+
+export function levelFromXp(totalXp: number): number {
+  let level = 1;
+  let remaining = totalXp;
+  while (level < MAX_LEVEL) {
+    const need = CONFIG.level.xpToNext(level);
+    if (remaining < need) break;
+    remaining -= need;
+    level += 1;
+  }
+  return level;
+}
+
+export function divisionForLevel(level: number): "F4" | "F3" | "F2" | "F1" {
+  const x = CONFIG.xp;
+  if (level >= x.formulaF1.levelMin) return "F1";
+  if (level >= x.formulaF2.levelMin) return "F2";
+  if (level >= x.formulaF3.levelMin) return "F3";
+  return "F4";
 }

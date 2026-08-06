@@ -8,3 +8,7 @@ coverage/
 .env
 .env.*
 !.env.example
+apps/server/data/
+
+# TS incremental build cache
+*.tsbuildinfo

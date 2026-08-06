@@ -2,6 +2,8 @@ import { useState } from "react";
 import type { PilotProfile, SkillKey, Skills, TyreCompound } from "@f1race/race-engine";
 import { emptySkills, estimateTyreLifespanLaps, recommendedLaps, redBullRing } from "@f1race/race-engine";
 import { teamColor, TYRE_COLORS, TYRE_LABEL } from "./colors";
+import { yandexClientId } from "../identity";
+import type { DriverProfileSummary } from "../identity";
 
 const STARTING_POINTS = 10;
 const MAX_PER_SKILL = 5;
@@ -58,8 +60,16 @@ const DEFAULTS: PilotProfile = {
   pitCompound: "soft",
 };
 
-export function SetupScreen({ onStart }: { onStart: (cfg: PilotProfile) => void }) {
-  const [cfg, setCfg] = useState<PilotProfile>(DEFAULTS);
+export interface SetupScreenProps {
+  onStart: (cfg: PilotProfile) => void;
+  initialHero?: PilotProfile;
+  authProfile?: DriverProfileSummary | null;
+  onLoginYandex?: () => void;
+  onLogout?: () => void;
+}
+
+export function SetupScreen({ onStart, initialHero, authProfile, onLoginYandex, onLogout }: SetupScreenProps) {
+  const [cfg, setCfg] = useState<PilotProfile>(initialHero ?? DEFAULTS);
   const track = redBullRing();
   const lapKm = track.lengthM / 1000;
   const laps = recommendedLaps(track);
@@ -70,6 +80,9 @@ export function SetupScreen({ onStart }: { onStart: (cfg: PilotProfile) => void 
   const nameValid = cfg.name.trim().length >= 2;
   const pointsValid = remaining === 0;
   const canStart = nameValid && pointsValid;
+
+  const showYandexButton = !authProfile && !!yandexClientId() && !!onLoginYandex;
+  const authName = authProfile?.hero.name ?? null;
 
   const setSkill = (key: SkillKey, delta: number) => {
     setCfg((c) => {
@@ -86,6 +99,24 @@ export function SetupScreen({ onStart }: { onStart: (cfg: PilotProfile) => void 
       <div className="setup-card">
         <h1>Создание пилота</h1>
         <p className="sub">Формула 4 · Red Bull Ring · {laps} кругов (~{Math.round(lapKm * laps)} км) · 1 обязательный пит-стоп со сменой состава · без регистрации</p>
+
+        {authProfile && authName && (
+          <div className="auth-row">
+            <span className="auth-chip">
+              <svg className="ya-badge-sm" viewBox="0 0 24 24" aria-hidden="true">
+                <rect width="24" height="24" rx="4" fill="#FC3F1D" />
+                <text x="12" y="17" textAnchor="middle" fontSize="14" fontFamily="Arial, sans-serif" fontWeight="700" fill="#fff">Я</text>
+              </svg>
+              <span className="auth-chip-text">Вы вошли как <strong>{authName}</strong></span>
+              {authProfile.division && <span className="auth-chip-div">{authProfile.division} · Ур. {authProfile.level}</span>}
+            </span>
+            {onLogout && (
+              <button className="auth-logout" onClick={onLogout}>Выйти</button>
+            )}
+          </div>
+        )}
+
+        {initialHero && <p className="welcome-back">С возвращением, {initialHero.name}! Профиль загружен — можно править.</p>}
 
         <label className="field">
           <span>Имя пилота</span>
@@ -178,6 +209,19 @@ export function SetupScreen({ onStart }: { onStart: (cfg: PilotProfile) => void 
             Состав на пит выбирается <strong>во время гонки</strong> (панель «Пит-стоп»). Soft быстр, но умирает через ~{lifespan("soft")} круг. — обычно питаться на {lifespan("soft")}-{lifespan("soft") + 1}-м круге. По правилу Ф1 состав нужно <strong>сменить</strong>.
           </p>
         </div>
+
+        {showYandexButton && (
+          <div className="oauth-login-row">
+            <button type="button" className="yandex-btn" onClick={onLoginYandex}>
+              <svg className="ya-badge" viewBox="0 0 24 24" aria-hidden="true">
+                <rect width="24" height="24" rx="4" fill="#FC3F1D" />
+                <text x="12" y="17" textAnchor="middle" fontSize="14" fontFamily="Arial, sans-serif" fontWeight="700" fill="#fff">Я</text>
+              </svg>
+              Войти через Яндекс
+            </button>
+            <p className="oauth-hint">Опционально: сохранит прогресс и уровень между визитами.</p>
+          </div>
+        )}
 
         <button className="start-btn" disabled={!canStart} onClick={() => onStart(cfg)}>
           На стартовую решётку →

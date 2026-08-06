@@ -21,6 +21,12 @@ export interface EngineOptions {
   dt?: number;
 }
 
+export type PitRequestResult =
+  | "queued"
+  | "rejected_same_compound"
+  | "rejected_unknown_driver"
+  | "rejected_not_racing";
+
 export class RaceEngine {
   readonly config: RaceConfig;
   readonly cars: CarState[];
@@ -142,10 +148,13 @@ export class RaceEngine {
     return this.result();
   }
 
-  requestPit(driverId: string, compound: TyreCompound): void {
+  requestPit(driverId: string, compound: TyreCompound): PitRequestResult {
+    if (this.phase !== "racing") return "rejected_not_racing";
     const car = this.cars.find((c) => c.driverId === driverId);
-    if (car && car.tyre.compound === compound) return;
+    if (!car) return "rejected_unknown_driver";
+    if (car.tyre.compound === compound) return "rejected_same_compound";
     this.pitRequests.set(driverId, compound);
+    return "queued";
   }
 
   cancelPit(driverId: string): void {
@@ -184,6 +193,7 @@ export class RaceEngine {
 
     let pushLevel = this.effectivePushLevel(car);
     if (overtaking) pushLevel *= 1.06;
+    if (car.blueFlag) pushLevel *= CONFIG.blueFlag.yieldPaceFactor;
     const paceMult = driver.paceFactor * paceSpeedMultiplier({
       paceSkill: driver.skills.pace,
       fitnessSkill: driver.skills.fitness,
@@ -369,6 +379,7 @@ export class RaceEngine {
       const n = ((s % len) + len) % len;
       return n / len;
     };
+    const bf = CONFIG.blueFlag;
     for (const car of this.cars) {
       car.blueFlag = false;
       if (car.inPits || car.finished || car.dnf) continue;
@@ -382,13 +393,10 @@ export class RaceEngine {
         let behind = carFrac - otherFrac;
         if (behind < 0) behind += 1;
         const distM = behind * len;
-        if (distM <= 8 || distM >= len) continue;
+        if (distM <= bf.minDistM || distM >= len) continue;
         const gapSec = distM / Math.max(20, other.v);
-        if (gapSec < 2.5) {
+        if (gapSec < bf.triggerGapSec) {
           car.blueFlag = true;
-          const leaderLap = Math.floor(otherDist / len);
-          const advance = Math.min(len - 2, (carFrac + 0.012) * len);
-          other.s = other.initialS + leaderLap * len + advance;
           break;
         }
       }
@@ -422,6 +430,16 @@ export class RaceEngine {
     return deltaM / vRef;
   }
 
+  private physicalGapSec(ahead: CarState, behind: CarState): number {
+    const len = this.length;
+    const sAhead = ((ahead.s % len) + len) % len;
+    const sBehind = ((behind.s % len) + len) % len;
+    let gapM = sAhead - sBehind;
+    if (gapM < 0) gapM += len;
+    if (gapM >= len) return 0;
+    return gapM / Math.max(20, behind.v);
+  }
+
   private handleBattles(dt: number): void {
     for (const car of this.cars) {
       car.battleCooldown = Math.max(0, car.battleCooldown - dt);
@@ -441,16 +459,32 @@ export class RaceEngine {
         behind.battleCooldown = CONFIG.battle.attackCooldownSec * 0.35;
         continue;
       }
-      this.attemptOvertake(ahead, behind);
+      this.attemptOvertake(ahead, behind, 0);
+    }
+    for (const behind of ranked) {
+      if (this.time < behind.overtakingUntil) continue;
+      if (behind.overtakingTarget) continue;
+      if (behind.battleCooldown > 0) continue;
+      for (const ahead of ranked) {
+        if (ahead === behind) continue;
+        const lapDelta = behind.lap - ahead.lap;
+        if (lapDelta < 1) continue;
+        const gap = this.physicalGapSec(ahead, behind);
+        if (gap <= 0 || gap > CONFIG.battle.attackGapSec) continue;
+        if (behind.v <= ahead.v + 0.05) continue;
+        this.attemptOvertake(ahead, behind, lapDelta);
+        if (behind.overtakingTarget) break;
+      }
     }
   }
 
-  private attemptOvertake(ahead: CarState, behind: CarState): void {
+  private attemptOvertake(ahead: CarState, behind: CarState, lapDelta: number): void {
     const b = CONFIG.battle;
     const behindDriver = this.driverOf(behind);
     const sNorm = ((behind.s % this.length) + this.length) % this.length;
     const ov = overtakingScoreAround(this.config.track, sNorm);
-    if (ov < 0.25) {
+    const minOv = lapDelta >= 1 ? CONFIG.blueFlag.minOvertakingScore : 0.25;
+    if (ov < minOv) {
       behind.battleCooldown = b.attackCooldownSec * 0.5;
       return;
     }
@@ -465,13 +499,14 @@ export class RaceEngine {
       trainSize: behind.trainSize,
       overtakingScore: ov,
       attackerAlreadyAhead: false,
+      lapDelta,
     });
     behind.battleCooldown = b.attackCooldownSec;
     if (this.rng.bool(p)) {
       behind.overtakingUntil = this.time + 5;
       behind.overtakingTarget = ahead.driverId;
       behind.overtakeScore += 1;
-      ahead.defendScore += 1;
+      if (lapDelta < 1) ahead.defendScore += 1;
       this.pushEvent({
         t: this.time,
         type: "overtake",

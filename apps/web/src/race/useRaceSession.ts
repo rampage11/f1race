@@ -8,8 +8,51 @@ import type {
   RaceSnapshot,
   TyreCompound,
 } from "@f1race/race-engine";
+import { writeCachedProfile, getAuthToken, setAuthProfile } from "../identity";
+import type { Division, DriverProfileSummary } from "../identity";
 
-export type Stage = "qualy" | "race" | "finished";
+export type Stage = "qualy" | "startSequence" | "race" | "finished";
+export type RoomMode = "solo" | "multiplayer";
+export type ConnectionState = "connected" | "reconnecting" | "disconnected";
+
+export interface RoomPlayer {
+  driverId: string;
+  name: string;
+  connected: boolean;
+}
+
+export interface SessionError {
+  id: number;
+  message: string;
+  at: number;
+}
+
+export interface StartSequence {
+  lightsOutAt: number;
+  sequenceId: number;
+}
+
+export interface MyStartResult {
+  reactionSec: number;
+  jumpStart: boolean;
+}
+
+export interface LobbyState {
+  division: Division;
+  queuedPlayers: number;
+  estimatedWaitSec: number;
+}
+
+export interface RaceProgression {
+  xpGained: number;
+  totalXp: number;
+  level: number;
+  xpIntoLevel: number;
+  xpForNext: number;
+  division: Division;
+  racesCount: number;
+  leveledUp: boolean;
+}
 
 export interface SessionCar {
   driverId: string;
@@ -45,7 +88,36 @@ export interface SessionSnapshot {
   qualyResults?: QualyResultRow[];
 }
 
+export const ERROR_TEXT: Record<string, string> = {
+  "rate limit: speed": "Слишком частая смена скорости",
+  "rate limit: pause": "Слишком частое переключение паузы",
+  "rate limit: pit": "Слишком частый запрос пит-стопа",
+  "rate limit: cancelPit": "Слишком частая отмена пит-стопа",
+  "rate limit: restart": "Подождите перед рестартом",
+  "pit only available during the race": "Пит-стоп доступен только во время гонки",
+  "already on that tyre compound": "Этот состав уже стоит — нужна смена (правило Ф1)",
+  "unknown driver": "Вашего пилота нет в этой гонке",
+  "invalid or expired session token": "Сессия истекла — переподключение новым входом",
+  "invalid json": "Сервер не понял команду",
+};
+
+export function friendlyError(message: string): string {
+  return ERROR_TEXT[message] ?? message;
+}
+
 const WS_URL = (import.meta.env.VITE_WS_URL as string | undefined) ?? "ws://localhost:8787";
+const PROTOCOL_VERSION = 1;
+const TOKEN_KEY = "f1race.sessionToken";
+const ERROR_TTL_MS = 4000;
+const MAX_RECONNECT_ATTEMPTS = 8;
+
+function readStoredToken(): string | null {
+  try {
+    return sessionStorage.getItem(TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
 
 function fromQualy(snap: QualySnapshot, heroId: string): SessionSnapshot {
   return {
@@ -104,28 +176,78 @@ function fromRace(snap: RaceSnapshot, heroId: string): SessionSnapshot {
 
 export interface SessionControls {
   connected: boolean;
+  connectionState: ConnectionState;
+  reconnecting: boolean;
+  inLobby: boolean;
+  lobby: LobbyState | null;
   stage: Stage;
   snapshot: SessionSnapshot | null;
   result: RaceResult | null;
   heroId: string;
+  driverId: string;
+  mode: RoomMode;
+  players: RoomPlayer[];
+  errors: SessionError[];
   speed: number;
   paused: boolean;
+  startSequence: StartSequence | null;
+  myStartResult: MyStartResult | null;
+  reacted: boolean;
+  profile: DriverProfileSummary | null;
+  lastProgression: RaceProgression | null;
   setSpeed: (n: number) => void;
   setPaused: (b: boolean) => void;
   requestPit: (compound: TyreCompound) => void;
+  cancelPit: () => void;
   restart: () => void;
+  sendStartReaction: () => void;
 }
 
-export function useRaceSession(hero: PilotProfile): SessionControls {
-  const [connected, setConnected] = useState(false);
+export function useRaceSession(hero: PilotProfile, guestId: string): SessionControls {
+  const [connectionState, setConnectionState] = useState<ConnectionState>("disconnected");
   const [stage, setStage] = useState<Stage>("qualy");
   const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(null);
   const [result, setResult] = useState<RaceResult | null>(null);
   const [speed, setSpeedState] = useState(6);
   const [paused, setPausedState] = useState(false);
+  const [mode, setMode] = useState<RoomMode>("solo");
+  const [players, setPlayers] = useState<RoomPlayer[]>([]);
+  const [driverId, setDriverId] = useState("");
+  const [errors, setErrors] = useState<SessionError[]>([]);
+  const [startSequence, setStartSequence] = useState<StartSequence | null>(null);
+  const [myStartResult, setMyStartResult] = useState<MyStartResult | null>(null);
+  const [reactedSequenceId, setReactedSequenceId] = useState<number | null>(null);
+  const [profile, setProfile] = useState<DriverProfileSummary | null>(null);
+  const [lastProgression, setLastProgression] = useState<RaceProgression | null>(null);
+  const [lobby, setLobby] = useState<LobbyState | null>(null);
+  const [lobbyWaiting, setLobbyWaiting] = useState(false);
+
   const wsRef = useRef<WebSocket | null>(null);
   const heroRef = useRef(hero);
   heroRef.current = hero;
+  const tokenRef = useRef<string | null>(readStoredToken());
+  const pendingReconnectRef = useRef(false);
+  const errorIdRef = useRef(0);
+  const driverIdRef = useRef("");
+  driverIdRef.current = driverId;
+  const startSequenceRef = useRef<StartSequence | null>(null);
+  startSequenceRef.current = startSequence;
+  const reactedSeqIdRef = useRef<number | null>(null);
+  reactedSeqIdRef.current = reactedSequenceId;
+  const profileRef = useRef<DriverProfileSummary | null>(null);
+  profileRef.current = profile;
+  const guestIdRef = useRef(guestId);
+  guestIdRef.current = guestId;
+  const lobbyWaitingRef = useRef(false);
+
+  const pushError = useCallback((rawMessage: string) => {
+    const id = ++errorIdRef.current;
+    const message = friendlyError(rawMessage);
+    setErrors((prev) => [...prev.slice(-2), { id, message, at: Date.now() }]);
+    setTimeout(() => {
+      setErrors((prev) => prev.filter((e) => e.id !== id));
+    }, ERROR_TTL_MS);
+  }, []);
 
   const send = useCallback((msg: unknown) => {
     const ws = wsRef.current;
@@ -133,32 +255,221 @@ export function useRaceSession(hero: PilotProfile): SessionControls {
   }, []);
 
   useEffect(() => {
-    const ws = new WebSocket(WS_URL);
-    wsRef.current = ws;
-    ws.onopen = () => {
-      setConnected(true);
-      ws.send(JSON.stringify({ type: "hello", hero: heroRef.current }));
-    };
-    ws.onclose = () => setConnected(false);
-    ws.onerror = () => setConnected(false);
-    ws.onmessage = (ev) => {
-      let msg: { type: string; [k: string]: unknown };
+    let manualClose = false;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let attempt = 0;
+
+    const storeToken = (token: string) => {
+      tokenRef.current = token;
       try {
-        msg = JSON.parse(ev.data as string);
+        sessionStorage.setItem(TOKEN_KEY, token);
       } catch {
+        /* sessionStorage unavailable */
+      }
+    };
+    const clearToken = () => {
+      tokenRef.current = null;
+      try {
+        sessionStorage.removeItem(TOKEN_KEY);
+      } catch {
+        /* sessionStorage unavailable */
+      }
+    };
+
+    const sendHello = (ws: WebSocket) => {
+      lobbyWaitingRef.current = true;
+      setLobbyWaiting(true);
+      setLobby(null);
+      const authToken = getAuthToken();
+      const payload: { type: "hello"; protocolVersion: number; hero: PilotProfile; guestId: string; authToken?: string } = {
+        type: "hello",
+        protocolVersion: PROTOCOL_VERSION,
+        hero: heroRef.current,
+        guestId: guestIdRef.current,
+      };
+      if (authToken) payload.authToken = authToken;
+      ws.send(JSON.stringify(payload));
+    };
+    const sendReconnectOrHello = (ws: WebSocket) => {
+      const token = tokenRef.current;
+      if (!token) {
+        sendHello(ws);
         return;
       }
-      if (msg.type === "stage") {
-        setStage(msg.stage as Stage);
-      } else if (msg.type === "snapshot") {
-        const m = msg as unknown as { stage: Stage; snapshot: QualySnapshot | RaceSnapshot; heroId: string };
-        setSnapshot(m.stage === "qualy" ? fromQualy(m.snapshot as QualySnapshot, m.heroId) : fromRace(m.snapshot as RaceSnapshot, m.heroId));
-      } else if (msg.type === "result") {
-        setResult(msg.result as RaceResult);
-      }
+      pendingReconnectRef.current = true;
+      lobbyWaitingRef.current = false;
+      setLobbyWaiting(false);
+      setLobby(null);
+      ws.send(JSON.stringify({ type: "reconnect", sessionToken: token }));
     };
-    return () => ws.close();
-  }, []);
+
+    const scheduleReconnect = () => {
+      if (manualClose) return;
+      if (attempt >= MAX_RECONNECT_ATTEMPTS) {
+        setConnectionState("disconnected");
+        clearToken();
+        return;
+      }
+      const delay = Math.min(500 * 2 ** attempt, 10000);
+      attempt += 1;
+      setConnectionState("reconnecting");
+      reconnectTimer = setTimeout(() => {
+        if (manualClose) return;
+        try {
+          const ws = new WebSocket(WS_URL);
+          wsRef.current = ws;
+          attach(ws);
+        } catch {
+          scheduleReconnect();
+        }
+      }, delay);
+    };
+
+    const attach = (ws: WebSocket) => {
+      ws.onopen = () => {
+        setConnectionState("connected");
+        sendReconnectOrHello(ws);
+      };
+      ws.onclose = () => {
+        if (manualClose) return;
+        scheduleReconnect();
+      };
+      ws.onerror = () => {
+        /* browser will fire onclose next */
+      };
+      ws.onmessage = (ev) => {
+        let msg: { type: string; [k: string]: unknown };
+        try {
+          msg = JSON.parse(ev.data as string);
+        } catch {
+          return;
+        }
+        switch (msg.type) {
+          case "lobbyState": {
+            if (!lobbyWaitingRef.current) break;
+            const m = msg as unknown as { division: Division; queuedPlayers: number; estimatedWaitSec: number };
+            setLobby({ division: m.division, queuedPlayers: m.queuedPlayers, estimatedWaitSec: m.estimatedWaitSec });
+            break;
+          }
+          case "welcome": {
+            const m = msg as unknown as { driverId: string; sessionToken: string; mode: RoomMode; profile?: DriverProfileSummary };
+            pendingReconnectRef.current = false;
+            lobbyWaitingRef.current = false;
+            setLobbyWaiting(false);
+            setLobby(null);
+            attempt = 0;
+            setDriverId(m.driverId);
+            setMode(m.mode);
+            storeToken(m.sessionToken);
+            if (m.profile) {
+              setProfile(m.profile);
+              writeCachedProfile(m.profile);
+              if (getAuthToken()) setAuthProfile(m.profile);
+            }
+            break;
+          }
+          case "stage": {
+            const newStage = msg.stage as Stage;
+            setStage(newStage);
+            if (newStage !== "finished") setLastProgression(null);
+            setStartSequence(null);
+            setMyStartResult(null);
+            setReactedSequenceId(null);
+            break;
+          }
+          case "snapshot": {
+            const m = msg as unknown as { stage: Stage; snapshot: QualySnapshot | RaceSnapshot; heroId: string };
+            setSnapshot(
+              m.stage === "qualy"
+                ? fromQualy(m.snapshot as QualySnapshot, m.heroId)
+                : fromRace(m.snapshot as RaceSnapshot, m.heroId),
+            );
+            break;
+          }
+          case "result": {
+            setResult(msg.result as RaceResult);
+            break;
+          }
+          case "roomState": {
+            const m = msg as unknown as { players: RoomPlayer[]; mode: RoomMode };
+            setPlayers(m.players);
+            setMode(m.mode);
+            break;
+          }
+          case "startSequence": {
+            const m = msg as unknown as { lightsOutAt: number; sequenceId: number };
+            setStartSequence({ lightsOutAt: m.lightsOutAt, sequenceId: m.sequenceId });
+            setMyStartResult(null);
+            setReactedSequenceId(null);
+            break;
+          }
+          case "startResult": {
+            const m = msg as unknown as { driverId: string; reactionSec: number; jumpStart: boolean };
+            if (m.driverId === driverIdRef.current) {
+              setMyStartResult({ reactionSec: m.reactionSec, jumpStart: m.jumpStart });
+            }
+            break;
+          }
+          case "progression": {
+            const m = msg as unknown as {
+              xpGained: number; totalXp: number; level: number;
+              xpIntoLevel: number; xpForNext: number; division: Division; racesCount: number;
+            };
+            const prevLevel = profileRef.current?.level ?? 0;
+            setLastProgression({ ...m, leveledUp: m.level > prevLevel });
+            if (profileRef.current) {
+              const updated: DriverProfileSummary = {
+                ...profileRef.current,
+                level: m.level,
+                division: m.division,
+                totalXp: m.totalXp,
+                racesCount: m.racesCount,
+              };
+              setProfile(updated);
+              writeCachedProfile(updated);
+              if (getAuthToken()) setAuthProfile(updated);
+            }
+            break;
+          }
+          case "error": {
+            const m = msg as unknown as { message: string };
+            if (pendingReconnectRef.current) {
+              pendingReconnectRef.current = false;
+              clearToken();
+              sendHello(ws);
+            } else {
+              pushError(m.message);
+            }
+            break;
+          }
+        }
+      };
+    };
+
+    try {
+      const initial = new WebSocket(WS_URL);
+      wsRef.current = initial;
+      attach(initial);
+    } catch {
+      scheduleReconnect();
+    }
+
+    return () => {
+      manualClose = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      const cur = wsRef.current;
+      if (cur) cur.close();
+    };
+  }, [pushError]);
+
+  const prevModeRef = useRef<RoomMode>("solo");
+  useEffect(() => {
+    if (prevModeRef.current !== "multiplayer" && mode === "multiplayer") {
+      setSpeedState(1);
+      setPausedState(false);
+    }
+    prevModeRef.current = mode;
+  }, [mode]);
 
   const setSpeed = useCallback((n: number) => {
     setSpeedState(n);
@@ -174,25 +485,89 @@ export function useRaceSession(hero: PilotProfile): SessionControls {
     send({ type: "pit", compound });
   }, [send]);
 
+  const cancelPit = useCallback(() => {
+    send({ type: "cancelPit" });
+  }, [send]);
+
   const restart = useCallback(() => {
     setResult(null);
     setStage("qualy");
+    setStartSequence(null);
+    setMyStartResult(null);
+    setReactedSequenceId(null);
+    setLastProgression(null);
     send({ type: "restart" });
   }, [send]);
 
-  const heroId = useMemo(() => snapshot?.heroId ?? "", [snapshot]);
+  const sendStartReaction = useCallback(() => {
+    const seq = startSequenceRef.current;
+    if (!seq) return;
+    if (reactedSeqIdRef.current === seq.sequenceId) return;
+    reactedSeqIdRef.current = seq.sequenceId;
+    setReactedSequenceId(seq.sequenceId);
+    send({ type: "startReaction", clientTimestamp: performance.now(), sequenceId: seq.sequenceId });
+  }, [send]);
 
-  return {
-    connected,
-    stage,
-    snapshot,
-    result,
-    heroId,
-    speed,
-    paused,
-    setSpeed,
-    setPaused,
-    requestPit,
-    restart,
-  };
+  const heroId = driverId || snapshot?.heroId || "";
+  const reconnecting = connectionState === "reconnecting";
+  const reacted = startSequence !== null && reactedSequenceId === startSequence.sequenceId;
+  const inLobby = lobbyWaiting;
+
+  return useMemo(
+    () => ({
+      connected: connectionState === "connected",
+      connectionState,
+      reconnecting,
+      inLobby,
+      lobby,
+      stage,
+      snapshot,
+      result,
+      heroId,
+      driverId,
+      mode,
+      players,
+      errors,
+      speed,
+      paused,
+      startSequence,
+      myStartResult,
+      reacted,
+      profile,
+      lastProgression,
+      setSpeed,
+      setPaused,
+      requestPit,
+      cancelPit,
+      restart,
+      sendStartReaction,
+    }),
+    [
+      connectionState,
+      reconnecting,
+      inLobby,
+      lobby,
+      stage,
+      snapshot,
+      result,
+      heroId,
+      driverId,
+      mode,
+      players,
+      errors,
+      speed,
+      paused,
+      startSequence,
+      myStartResult,
+      reacted,
+      profile,
+      lastProgression,
+      setSpeed,
+      setPaused,
+      requestPit,
+      cancelPit,
+      restart,
+      sendStartReaction,
+    ],
+  );
 }

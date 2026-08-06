@@ -16,5 +16,5 @@
       "@f1race/race-engine": ["../../packages/race-engine/src/index.ts"]
     }
   },
-  "include": ["src"]
+  "include": ["src", "tests", "scripts", "vitest.config.ts"]
 }

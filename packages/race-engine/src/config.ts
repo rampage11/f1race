@@ -109,6 +109,15 @@ export const CONFIG = {
     trainStackingMultiplier: 0.6,
   },
 
+  blueFlag: {
+    yieldPaceFactor: 0.94,
+    triggerGapSec: 2.5,
+    minDistM: 8,
+    minOvertakingScore: 0.1,
+    lappedBasePassProb: 0.88,
+    lappedProbFloor: 0.85,
+  },
+
   qualifying: {
     noiseSigma: 0.18,
     fuelBurnCompensation: 0,

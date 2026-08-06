@@ -153,3 +153,48 @@ describe("RaceEngine", () => {
     expect(positions).toEqual(Array.from({ length: drivers.length }, (_, i) => i + 1));
   });
 });
+
+describe("RaceEngine.requestPit result status (spec P19b)", () => {
+  function makeHeroEngine(startingTyre: Driver["startingTyre"], totalLaps = 12, seed = 246): RaceEngine {
+    const track = redBullRing();
+    const hero = makeDriver({
+      name: "Hero",
+      country: "RU",
+      kind: "human",
+      skills: { ...emptySkills(), pace: 6 },
+      startingTyre,
+      pitPlan: { targetStops: 1, compound: startingTyre === "soft" ? "medium" : "soft" },
+    });
+    const bots = field(seed);
+    const drivers = gridFrom([hero, ...bots], seed);
+    const cfg = buildRaceConfig({ track, drivers, totalLaps, seed, dt: 0.1, heroId: hero.id });
+    return new RaceEngine(cfg);
+  }
+
+  it("returns 'queued' for a valid different-compound request during racing", () => {
+    const engine = makeHeroEngine("medium");
+    const heroId = engine.config.heroId!;
+    expect(engine.requestPit(heroId, "hard")).toBe("queued");
+    expect(engine.hasPendingPit(heroId)).toBe(true);
+  });
+
+  it("returns 'rejected_same_compound' when requesting the current compound and does not queue", () => {
+    const engine = makeHeroEngine("medium");
+    const heroId = engine.config.heroId!;
+    expect(engine.requestPit(heroId, "medium")).toBe("rejected_same_compound");
+    expect(engine.hasPendingPit(heroId)).toBe(false);
+  });
+
+  it("returns 'rejected_unknown_driver' for an unknown driverId", () => {
+    const engine = makeHeroEngine("medium");
+    expect(engine.requestPit("nonexistent-driver", "hard")).toBe("rejected_unknown_driver");
+  });
+
+  it("returns 'rejected_not_racing' once the race has finished", () => {
+    const engine = makeHeroEngine("medium", 6);
+    const heroId = engine.config.heroId!;
+    engine.run();
+    expect(engine.phase).toBe("finished");
+    expect(engine.requestPit(heroId, "hard")).toBe("rejected_not_racing");
+  });
+});

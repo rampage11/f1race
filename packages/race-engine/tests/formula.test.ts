@@ -12,6 +12,8 @@ import {
   paceSpeedMultiplier,
   computeStartOutcome,
   fatigueFactor,
+  levelFromXp,
+  divisionForLevel,
 } from "../src/index.js";
 
 describe("skills allocation", () => {
@@ -103,6 +105,7 @@ describe("battle (overtaking)", () => {
     trainSize: 0,
     overtakingScore: 1,
     attackerAlreadyAhead: false,
+    lapDelta: 0,
   };
   it("train holds when pace delta is small", () => {
     const p = passProbability({ ...baseInput, paceDeltaMs: 0.2 });
@@ -178,5 +181,47 @@ describe("config sanity", () => {
     const h = CONFIG.tyres.hard.paceBonusSec;
     expect(s).toBeLessThan(m);
     expect(m).toBeLessThan(h);
+  });
+});
+
+describe("xp / level progression", () => {
+  it("0 XP is level 1", () => {
+    expect(levelFromXp(0)).toBe(1);
+  });
+
+  it("exactly xpToNext(1) promotes to level 2", () => {
+    const need = CONFIG.level.xpToNext(1);
+    expect(levelFromXp(need)).toBe(2);
+  });
+
+  it("one less than xpToNext(1) stays at level 1", () => {
+    const need = CONFIG.level.xpToNext(1);
+    expect(levelFromXp(need - 1)).toBe(1);
+  });
+
+  it("is monotonic non-decreasing in totalXp", () => {
+    let prev = levelFromXp(0);
+    for (let xp = 50; xp <= 5000; xp += 50) {
+      const lvl = levelFromXp(xp);
+      expect(lvl).toBeGreaterThanOrEqual(prev);
+      prev = lvl;
+    }
+    expect(prev).toBeGreaterThan(1);
+  });
+
+  it("caps at MAX_LEVEL for absurd XP", () => {
+    expect(levelFromXp(1e15)).toBe(999);
+    expect(levelFromXp(Number.MAX_VALUE)).toBe(999);
+  });
+
+  it("divisionForLevel maps the F4/F3/F2/F1 boundaries", () => {
+    expect(divisionForLevel(1)).toBe("F4");
+    expect(divisionForLevel(9)).toBe("F4");
+    expect(divisionForLevel(10)).toBe("F3");
+    expect(divisionForLevel(19)).toBe("F3");
+    expect(divisionForLevel(20)).toBe("F2");
+    expect(divisionForLevel(34)).toBe("F2");
+    expect(divisionForLevel(35)).toBe("F1");
+    expect(divisionForLevel(999)).toBe("F1");
   });
 });
