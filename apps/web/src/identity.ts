@@ -15,8 +15,21 @@ export interface DriverProfileSummary {
   hero: PilotProfile;
   level: number;
   division: Division;
+  driverRating: number;
+  heroConfirmed: boolean;
   totalXp: number;
   racesCount: number;
+}
+
+function normalizeProfile(parsed: Partial<DriverProfileSummary>): DriverProfileSummary | null {
+  if (typeof parsed.guestId === "string" && typeof parsed.level === "number" && parsed.hero) {
+    return {
+      ...parsed,
+      driverRating: typeof parsed.driverRating === "number" ? parsed.driverRating : 0,
+      heroConfirmed: typeof parsed.heroConfirmed === "boolean" ? parsed.heroConfirmed : false,
+    } as DriverProfileSummary;
+  }
+  return null;
 }
 
 let memoryGuestId: string | null = null;
@@ -57,9 +70,7 @@ export function readCachedProfile(): DriverProfileSummary | null {
   try {
     const raw = localStorage.getItem(PROFILE_KEY);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<DriverProfileSummary>;
-    if (typeof parsed.guestId === "string" && typeof parsed.level === "number" && parsed.hero) return parsed as DriverProfileSummary;
-    return null;
+    return normalizeProfile(JSON.parse(raw) as Partial<DriverProfileSummary>);
   } catch {
     return null;
   }
@@ -94,11 +105,7 @@ export function getAuthProfile(): DriverProfileSummary | null {
   try {
     const raw = localStorage.getItem(AUTH_PROFILE_KEY);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<DriverProfileSummary>;
-    if (typeof parsed.guestId === "string" && typeof parsed.level === "number" && parsed.hero) {
-      return parsed as DriverProfileSummary;
-    }
-    return null;
+    return normalizeProfile(JSON.parse(raw) as Partial<DriverProfileSummary>);
   } catch {
     return null;
   }
@@ -125,9 +132,17 @@ export function yandexClientId(): string | null {
 
 export function apiBaseUrl(): string {
   const ws = (import.meta.env.VITE_WS_URL as string | undefined) ?? "ws://localhost:8787";
-  if (ws.startsWith("wss://")) return `https://${ws.slice("wss://".length)}`;
-  if (ws.startsWith("ws://")) return `http://${ws.slice("ws://".length)}`;
-  return ws;
+  // Derive the HTTP ORIGIN only (scheme + host[:port]). VITE_WS_URL may carry a path
+  // (prod is `wss://f1-race.ru/ws`); stripping the path is critical — otherwise every HTTP
+  // API call is built as `${wsUrl}/auth/...` → `/ws/auth/...` and hits the WS proxy location
+  // instead of the auth/api routes. The WS connection itself uses VITE_WS_URL verbatim.
+  try {
+    const u = new URL(ws);
+    const scheme = u.protocol === "wss:" ? "https:" : "http:";
+    return `${scheme}//${u.host}`;
+  } catch {
+    return ws;
+  }
 }
 
 export function isYandexCallbackPath(): boolean {
@@ -196,12 +211,12 @@ export async function exchangeYandexCode(code: string, redirectUri: string): Pro
     });
     const data = (await res.json().catch(() => null)) as {
       sessionToken?: string;
-      profile?: DriverProfileSummary;
+      profileSummary?: DriverProfileSummary;
       isNewUser?: boolean;
       error?: string;
     } | null;
-    if (res.ok && data?.sessionToken && data?.profile) {
-      return { ok: true, sessionToken: data.sessionToken, profile: data.profile, isNewUser: data.isNewUser };
+    if (res.ok && data?.sessionToken && data?.profileSummary) {
+      return { ok: true, sessionToken: data.sessionToken, profile: data.profileSummary, isNewUser: data.isNewUser };
     }
     if (res.status === 503) return { ok: false, error: data?.error ?? "yandex oauth not configured", notConfigured: true };
     return { ok: false, error: data?.error ?? `HTTP ${res.status}` };

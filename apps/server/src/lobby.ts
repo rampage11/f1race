@@ -1,4 +1,4 @@
-import { divisionForLevel, levelFromXp } from "@f1race/race-engine";
+import { divisionForRating, driverRating, levelFromXp, skillSum } from "@f1race/race-engine";
 import type { PilotProfile } from "@f1race/race-engine";
 import type { Division, ServerMessage } from "./protocol.js";
 import type { Room, RoomSink, ConnectionId } from "./room.js";
@@ -22,8 +22,13 @@ function envMs(name: string, def: number): number {
   return Number.isFinite(v) && v >= 0 ? v : def;
 }
 
+// Division derives from the two-factor driverRating (level + trained skills), not bare level.
+// A fresh pilot (skillSum === startingPoints) keeps rating === level, so F-boundaries are
+// unchanged; trained skills can promote a pilot into a higher division without racing.
 export function divisionOf(profile: DriverProfile | null): Division {
-  return divisionForLevel(levelFromXp(profile?.totalXp ?? 0));
+  const level = levelFromXp(profile?.totalXp ?? 0);
+  const rating = driverRating(level, skillSum(profile?.hero.skills ?? { fitness: 0, reaction: 0, attack: 0, defense: 0, pace: 0, tyreMgmt: 0 }));
+  return divisionForRating(rating);
 }
 
 export class Lobby {

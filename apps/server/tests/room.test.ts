@@ -17,7 +17,7 @@ const HERO_A: PilotProfile = {
   name: "Hero Alpha",
   country: "AT",
   team: "Redmine",
-  skills: { fitness: 5, reaction: 5, attack: 5, defense: 5, pace: 5, tyreMgmt: 5 },
+  skills: { fitness: 1, reaction: 1, attack: 2, defense: 2, pace: 3, tyreMgmt: 1 },
   startingTyre: "medium",
   pitCompound: "soft",
 };
@@ -26,7 +26,7 @@ const HERO_B: PilotProfile = {
   name: "Hero Beta",
   country: "JP",
   team: "Crimson",
-  skills: { fitness: 4, reaction: 6, attack: 5, defense: 4, pace: 6, tyreMgmt: 4 },
+  skills: { fitness: 2, reaction: 1, attack: 2, defense: 2, pace: 1, tyreMgmt: 2 },
   startingTyre: "soft",
   pitCompound: "medium",
 };

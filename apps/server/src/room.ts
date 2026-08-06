@@ -5,7 +5,8 @@ import {
   RaceEngine,
   buildQualyConfig,
   buildRaceConfig,
-  divisionForLevel,
+  divisionForRating,
+  driverRating,
   levelFromXp,
   makeBot,
   makeDriver,
@@ -13,6 +14,7 @@ import {
   nextDriverId,
   recommendedLaps,
   redBullRing,
+  skillSum,
   xpForRace,
   type Driver,
   type PilotProfile,
@@ -106,6 +108,9 @@ export function resolveHeroProfile(
     hero,
     totalXp: 0,
     racesCount: 0,
+    // The WS hello path creates guest profiles (not Yandex); guests never hit the first-login
+    // gate (the gated Yandex flow confirms via POST /api/profile/confirm before any WS hello).
+    heroConfirmed: true,
     createdAt: now,
     updatedAt: now,
   };
@@ -131,15 +136,20 @@ function profileSummary(p: DriverProfile): {
   hero: PilotProfile;
   level: number;
   division: Division;
+  driverRating: number;
+  heroConfirmed: boolean;
   totalXp: number;
   racesCount: number;
 } {
   const level = levelFromXp(p.totalXp);
+  const rating = driverRating(level, skillSum(p.hero.skills));
   return {
     guestId: p.guestId,
     hero: p.hero,
     level,
-    division: divisionForLevel(level),
+    division: divisionForRating(rating),
+    driverRating: rating,
+    heroConfirmed: p.heroConfirmed,
     totalXp: p.totalXp,
     racesCount: p.racesCount,
   };
@@ -705,6 +715,7 @@ export class Room {
       });
       const prog = progressFromXp(profile.totalXp);
       if (conn.connected && conn.sink.isOpen()) {
+        const rating = driverRating(prog.level, skillSum(profile.hero.skills));
         conn.sink.send({
           type: "progression",
           xpGained,
@@ -712,7 +723,7 @@ export class Room {
           level: prog.level,
           xpIntoLevel: prog.xpIntoLevel,
           xpForNext: prog.xpForNext,
-          division: divisionForLevel(prog.level),
+          division: divisionForRating(rating),
           racesCount: profile.racesCount,
         });
       }

@@ -170,3 +170,22 @@ export function divisionForLevel(level: number): "F4" | "F3" | "F2" | "F1" {
   if (level >= x.formulaF3.levelMin) return "F3";
   return "F4";
 }
+
+export function driverRating(level: number, skillSumValue: number): number {
+  const r = CONFIG.driverRating;
+  const skillBonus = (skillSumValue - CONFIG.skills.startingPoints) * r.skillWeight;
+  return Math.floor(level + skillBonus);
+}
+
+export function divisionForRating(rating: number): "F4" | "F3" | "F2" | "F1" {
+  const r = CONFIG.driverRating;
+  if (rating >= r.f1RatingMin) return "F1";
+  if (rating >= r.f2RatingMin) return "F2";
+  if (rating >= r.f3RatingMin) return "F3";
+  return "F4";
+}
+
+export function trainingDurationSec(currentSkillLevel: number): number {
+  const t = CONFIG.training;
+  return Math.round(t.baseDurationSec * Math.pow(t.growthFactor, currentSkillLevel));
+}

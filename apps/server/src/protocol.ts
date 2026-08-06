@@ -43,12 +43,15 @@ export interface RoomPlayer {
 }
 
 // Summary of a loaded/created profile, sent in `welcome` so the client can pre-fill setup
-// and render a level badge.
+// and render a level badge. `driverRating` is the two-factor rating (level + skills) used for
+// division/matchmaking; `heroConfirmed` is the first-login gate flag.
 export interface DriverProfileSummary {
   guestId: string;
   hero: PilotProfile;
   level: number;
   division: Division;
+  driverRating: number;
+  heroConfirmed: boolean;
   totalXp: number;
   racesCount: number;
 }

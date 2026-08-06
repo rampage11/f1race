@@ -1,4 +1,11 @@
-import { divisionForLevel, emptySkills, levelFromXp, type PilotProfile } from "@f1race/race-engine";
+import {
+  divisionForRating,
+  driverRating,
+  emptySkills,
+  levelFromXp,
+  skillSum,
+  type PilotProfile,
+} from "@f1race/race-engine";
 import type { Division, DriverProfileSummary } from "../protocol.js";
 import type { DriverProfile, DriverProfileRepository } from "../persistence/repository.js";
 import { signSession, type SessionPayload } from "./session.js";
@@ -50,11 +57,14 @@ export interface CallbackResult {
 
 export function profileSummaryFrom(p: DriverProfile): DriverProfileSummary {
   const level = levelFromXp(p.totalXp);
+  const rating = driverRating(level, skillSum(p.hero.skills));
   return {
     guestId: p.guestId,
     hero: p.hero,
     level,
-    division: divisionForLevel(level) as Division,
+    division: divisionForRating(rating) as Division,
+    driverRating: rating,
+    heroConfirmed: p.heroConfirmed,
     totalXp: p.totalXp,
     racesCount: p.racesCount,
   };
@@ -149,6 +159,8 @@ export async function handleYandexCallback(args: HandleCallbackArgs): Promise<Ca
       hero: DEFAULT_YANDEX_HERO,
       totalXp: 0,
       racesCount: 0,
+      // Force the first-login SetupScreen gate; flipped by POST /api/profile/confirm.
+      heroConfirmed: false,
       createdAt: now,
       updatedAt: now,
     };

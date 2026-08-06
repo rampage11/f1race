@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mkdtempSync, rmSync } from "node:fs";
-import type { PilotProfile, RaceResult } from "@f1race/race-engine";
+import { ABSOLUTE_SKILL_MAX, type PilotProfile, type RaceResult } from "@f1race/race-engine";
 import { createRepository, type DriverProfileRepository } from "../src/persistence/index.js";
 import { SqliteDriverProfileRepository } from "../src/persistence/sqlite-repository.js";
 import type { ServerMessage } from "../src/protocol.js";
@@ -12,7 +12,7 @@ const HERO: PilotProfile = {
   name: "Test Hero",
   country: "AT",
   team: "Redmine",
-  skills: { fitness: 5, reaction: 5, attack: 5, defense: 5, pace: 5, tyreMgmt: 5 },
+  skills: { fitness: 1, reaction: 1, attack: 2, defense: 2, pace: 3, tyreMgmt: 1 },
   startingTyre: "medium",
   pitCompound: "soft",
 };
@@ -42,6 +42,7 @@ describe("SqliteDriverProfileRepository: round-trip", () => {
       hero: HERO,
       totalXp: 250,
       racesCount: 3,
+      heroConfirmed: true,
       createdAt: now,
       updatedAt: now,
     });
@@ -60,6 +61,7 @@ describe("SqliteDriverProfileRepository: round-trip", () => {
       hero: HERO,
       totalXp: 250,
       racesCount: 3,
+      heroConfirmed: true,
       createdAt: now,
       updatedAt: now,
     });
@@ -69,6 +71,7 @@ describe("SqliteDriverProfileRepository: round-trip", () => {
       hero: edited,
       totalXp: 250,
       racesCount: 3,
+      heroConfirmed: true,
       createdAt: now,
       updatedAt: now + 5,
     });
@@ -86,6 +89,7 @@ describe("SqliteDriverProfileRepository: round-trip", () => {
       hero: HERO,
       totalXp: 0,
       racesCount: 0,
+      heroConfirmed: true,
       createdAt: now,
       updatedAt: now,
     });
@@ -117,6 +121,7 @@ describe("SqliteDriverProfileRepository: round-trip", () => {
       hero: HERO,
       totalXp: 254,
       racesCount: 2,
+      heroConfirmed: true,
       createdAt: now,
       updatedAt: now,
     };
@@ -139,6 +144,99 @@ describe("SqliteDriverProfileRepository: round-trip", () => {
     expect(hist[0]!.place).toBe(1);
     expect(hist[0]!.dnf).toBe(false);
     impl.close();
+  });
+});
+
+describe("SqliteDriverProfileRepository: training jobs", () => {
+  let dir: string;
+  let repo: DriverProfileRepository;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "f1race-train-"));
+    repo = createRepository(join(dir, "train.db"));
+  });
+
+  afterEach(() => {
+    repo.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  function seedProfile(guestId = "g1", heroOverride?: PilotProfile): void {
+    const now = Date.now();
+    repo.upsert({
+      guestId,
+      hero: heroOverride ?? HERO,
+      totalXp: 0,
+      racesCount: 0,
+      heroConfirmed: true,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+
+  it("startTraining inserts a row retrievable via getActiveTraining (active = completedAt IS NULL)", () => {
+    seedProfile();
+    const job = repo.startTraining("g1", "pace", 1000, 600);
+    expect(job.id).toBeGreaterThan(0);
+    expect(job.profileId).toBe("g1");
+    expect(job.targetSkill).toBe("pace");
+    expect(job.startedAt).toBe(1000);
+    expect(job.durationSec).toBe(600);
+    expect(job.completedAt).toBeNull();
+    const active = repo.getActiveTraining("g1");
+    expect(active).not.toBeNull();
+    expect(active!.id).toBe(job.id);
+    expect(active!.targetSkill).toBe("pace");
+  });
+
+  it("getActiveTraining returns null when none, and ignores completed rows", () => {
+    seedProfile();
+    expect(repo.getActiveTraining("g1")).toBeNull();
+    const job = repo.startTraining("g1", "fitness", 1000, 600);
+    const profile = repo.get("g1")!;
+    repo.completeTraining(job, profile);
+    expect(repo.getActiveTraining("g1")).toBeNull();
+  });
+
+  it("completeTraining increments the target skill by 1, marks completedAt, and clears active", () => {
+    seedProfile();
+    const before = repo.get("g1")!;
+    expect(before.hero.skills.pace).toBe(3);
+    const job = repo.startTraining("g1", "pace", 1000, 600);
+    const profile = repo.get("g1")!;
+    repo.completeTraining(job, profile);
+    expect(repo.getActiveTraining("g1")).toBeNull();
+    // Re-open a fresh repo on the same file to prove the increment hit disk.
+    repo.close();
+    repo = createRepository(join(dir, "train.db"));
+    const stored = repo.get("g1");
+    expect(stored).not.toBeNull();
+    expect(stored!.hero.skills.pace).toBe(4);
+  });
+
+  it("completeTraining clamps at ABSOLUTE_SKILL_MAX (no overflow)", () => {
+    const maxedHero: PilotProfile = {
+      ...HERO,
+      skills: { ...HERO.skills, pace: ABSOLUTE_SKILL_MAX },
+    };
+    seedProfile("g1", maxedHero);
+    const job = repo.startTraining("g1", "pace", 1000, 600);
+    const profile = repo.get("g1")!;
+    expect(profile.hero.skills.pace).toBe(ABSOLUTE_SKILL_MAX);
+    repo.completeTraining(job, profile);
+    expect(profile.hero.skills.pace).toBe(ABSOLUTE_SKILL_MAX);
+    repo.close();
+    repo = createRepository(join(dir, "train.db"));
+    const stored = repo.get("g1");
+    expect(stored!.hero.skills.pace).toBe(ABSOLUTE_SKILL_MAX);
+  });
+
+  it("cancelTraining deletes the active row", () => {
+    seedProfile();
+    const job = repo.startTraining("g1", "reaction", 1000, 600);
+    expect(repo.getActiveTraining("g1")).not.toBeNull();
+    repo.cancelTraining(job.id);
+    expect(repo.getActiveTraining("g1")).toBeNull();
   });
 });
 
@@ -258,6 +356,38 @@ describe("Room (unit): progression wiring (spec Phase 3)", () => {
     sink.messages.length = 0;
     room.applyProgressForTest(fakeResult(driverId));
     expect(sink.messages.find((m) => m.type === "progression")).toBeUndefined();
+    room.stop();
+  });
+
+  it("driverRating promotes a low-level but highly-trained hero to a higher division", () => {
+    // All skills at 8 → sum 48. At level 1: rating = 1 + (48-10)*0.5 = 20 → F2.
+    // Level alone (1) would be F4; this proves the two-factor rating works end-to-end.
+    const trainedHero: PilotProfile = {
+      name: "Trained Pro",
+      country: "AT",
+      team: "Topline",
+      skills: { fitness: 8, reaction: 8, attack: 8, defense: 8, pace: 8, tyreMgmt: 8 },
+      startingTyre: "medium",
+      pitCompound: "soft",
+    };
+    const room = new Room(repo);
+    const sink = makeSink();
+    room.addConnection("conn-a", sink, trainedHero, "guest-trained");
+    const welcome = sink.messages.find((m) => m.type === "welcome") as
+      | {
+          type: "welcome";
+          profile?: {
+            level: number;
+            division: string;
+            driverRating: number;
+          };
+        }
+      | undefined;
+    expect(welcome).toBeDefined();
+    expect(welcome!.profile).toBeDefined();
+    expect(welcome!.profile!.level).toBe(1);
+    expect(welcome!.profile!.driverRating).toBe(20);
+    expect(welcome!.profile!.division).toBe("F2");
     room.stop();
   });
 });

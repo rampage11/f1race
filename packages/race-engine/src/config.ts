@@ -138,6 +138,25 @@ export const CONFIG = {
   level: {
     xpToNext: (level: number): number => Math.round(100 * Math.pow(level, 1.5)),
   },
+
+  // Two-factor pilot rating: rating = level + (skillSum - startingPoints) * skillWeight.
+  // Division + matchmaking use rating (not bare level) so training actually moves status.
+  // For a fresh pilot (skillSum === startingPoints) rating === level, so all prior level-based
+  // boundaries are preserved exactly. Tunable here — weights are the calibration surface.
+  driverRating: {
+    skillWeight: 0.5,
+    f3RatingMin: 10,
+    f2RatingMin: 20,
+    f1RatingMin: 35,
+  },
+
+  // Background training: duration grows geometrically with the CURRENT skill level, so each
+  // next point takes longer than the last (time itself is the diminishing-returns curve).
+  // durationSec(level) = baseDurationSec * growthFactor ^ level.
+  training: {
+    baseDurationSec: 30 * 60,
+    growthFactor: 1.6,
+  },
 } as const;
 
 export type TyreCompoundConfig = (typeof CONFIG.tyres)[TyreCompound];

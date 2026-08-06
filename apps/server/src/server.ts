@@ -8,6 +8,7 @@ import { Room, resolveHeroProfile, type RoomSink } from "./room.js";
 import { Lobby, divisionOf } from "./lobby.js";
 import { createRepository, type DriverProfileRepository } from "./persistence/index.js";
 import { handleAuthRequest, verifySessionToken, type AuthEnv } from "./auth/index.js";
+import { handleApiRequest, type ApiEnv } from "./api/http.js";
 
 const DEFAULT_DB_PATH = "./data/f1race.db";
 
@@ -59,9 +60,11 @@ export function startServer(port: number = Number(process.env.PORT ?? 8787)): Pr
     allowedOrigin: ALLOWED_ORIGIN,
     repository,
   };
+  const apiEnv: ApiEnv = { sessionSecret, allowedOrigin: ALLOWED_ORIGIN, repository };
 
   const server = createServer(async (req, res) => {
     if (await handleAuthRequest(req, res, authEnv)) return;
+    if (await handleApiRequest(req, res, apiEnv)) return;
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ service: "f1race-server", status: "ok" }));
   });

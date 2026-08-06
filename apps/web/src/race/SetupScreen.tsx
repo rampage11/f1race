@@ -4,18 +4,10 @@ import { emptySkills, estimateTyreLifespanLaps, recommendedLaps, redBullRing } f
 import { teamColor, TYRE_COLORS, TYRE_LABEL } from "./colors";
 import { yandexClientId } from "../identity";
 import type { DriverProfileSummary } from "../identity";
+import { SKILL_META } from "../skills";
 
 const STARTING_POINTS = 10;
 const MAX_PER_SKILL = 5;
-
-const SKILL_META: { key: SkillKey; label: string; hint: string }[] = [
-  { key: "fitness", label: "Выносливость", hint: "Стабильность к концу гонки" },
-  { key: "reaction", label: "Реакция", hint: "Старт и рестарты" },
-  { key: "attack", label: "Атака", hint: "Эффективность обгонов" },
-  { key: "defense", label: "Защита", hint: "Удержание позиции" },
-  { key: "pace", label: "Пилотирование", hint: "Чистое время круга, квала" },
-  { key: "tyreMgmt", label: "Бережливость", hint: "Срок жизни резины" },
-];
 
 const COUNTRIES: { code: string; flag: string; name: string }[] = [
   { code: "RU", flag: "🇷🇺", name: "Россия" },
@@ -66,9 +58,21 @@ export interface SetupScreenProps {
   authProfile?: DriverProfileSummary | null;
   onLoginYandex?: () => void;
   onLogout?: () => void;
+  mode?: "full" | "onboarding";
+  submitting?: boolean;
+  submitError?: string | null;
 }
 
-export function SetupScreen({ onStart, initialHero, authProfile, onLoginYandex, onLogout }: SetupScreenProps) {
+export function SetupScreen({
+  onStart,
+  initialHero,
+  authProfile,
+  onLoginYandex,
+  onLogout,
+  mode = "full",
+  submitting = false,
+  submitError = null,
+}: SetupScreenProps) {
   const [cfg, setCfg] = useState<PilotProfile>(initialHero ?? DEFAULTS);
   const track = redBullRing();
   const lapKm = track.lengthM / 1000;
@@ -81,7 +85,9 @@ export function SetupScreen({ onStart, initialHero, authProfile, onLoginYandex, 
   const pointsValid = remaining === 0;
   const canStart = nameValid && pointsValid;
 
-  const showYandexButton = !authProfile && !!yandexClientId() && !!onLoginYandex;
+  const isOnboarding = mode === "onboarding";
+  const showYandexButton = !isOnboarding && !authProfile && !!yandexClientId() && !!onLoginYandex;
+  const showAuthRow = !isOnboarding && !!authProfile && !!authProfile.hero.name;
   const authName = authProfile?.hero.name ?? null;
 
   const setSkill = (key: SkillKey, delta: number) => {
@@ -98,9 +104,13 @@ export function SetupScreen({ onStart, initialHero, authProfile, onLoginYandex, 
     <div className="setup">
       <div className="setup-card">
         <h1>Создание пилота</h1>
-        <p className="sub">Формула 4 · Red Bull Ring · {laps} кругов (~{Math.round(lapKm * laps)} км) · 1 обязательный пит-стоп со сменой состава · без регистрации</p>
+        <p className="sub">
+          {isOnboarding
+            ? "Создайте своего пилота — это разовое решение на весь аккаунт"
+            : `Формула 4 · Red Bull Ring · ${laps} кругов (~${Math.round(lapKm * laps)} км) · 1 обязательный пит-стоп со сменой состава · без регистрации`}
+        </p>
 
-        {authProfile && authName && (
+        {showAuthRow && authName && (
           <div className="auth-row">
             <span className="auth-chip">
               <svg className="ya-badge-sm" viewBox="0 0 24 24" aria-hidden="true">
@@ -108,7 +118,7 @@ export function SetupScreen({ onStart, initialHero, authProfile, onLoginYandex, 
                 <text x="12" y="17" textAnchor="middle" fontSize="14" fontFamily="Arial, sans-serif" fontWeight="700" fill="#fff">Я</text>
               </svg>
               <span className="auth-chip-text">Вы вошли как <strong>{authName}</strong></span>
-              {authProfile.division && <span className="auth-chip-div">{authProfile.division} · Ур. {authProfile.level}</span>}
+              {authProfile && authProfile.division && <span className="auth-chip-div">{authProfile.division} · Ур. {authProfile.level}</span>}
             </span>
             {onLogout && (
               <button className="auth-logout" onClick={onLogout}>Выйти</button>
@@ -116,7 +126,7 @@ export function SetupScreen({ onStart, initialHero, authProfile, onLoginYandex, 
           </div>
         )}
 
-        {initialHero && <p className="welcome-back">С возвращением, {initialHero.name}! Профиль загружен — можно править.</p>}
+        {!isOnboarding && initialHero && <p className="welcome-back">С возвращением, {initialHero.name}! Профиль загружен — можно править.</p>}
 
         <label className="field">
           <span>Имя пилота</span>
@@ -181,34 +191,38 @@ export function SetupScreen({ onStart, initialHero, authProfile, onLoginYandex, 
           </div>
         </div>
 
-        <div className="field">
-          <span>Стартовая резина <em className="lifespan-hint">≈ {lifespan(cfg.startingTyre)} кругов до деградации</em></span>
-          <div className="tyre-pick">
-            {(["soft", "medium", "hard"] as TyreCompound[]).map((c) => (
-              <button
-                key={c}
-                className={`tyre-pick-btn ${c === cfg.startingTyre ? "selected" : ""}`}
-                style={{ borderColor: c === cfg.startingTyre ? TYRE_COLORS[c] : undefined }}
-                onClick={() => {
-                  const next = { ...cfg, startingTyre: c };
-                  if (next.pitCompound === c) next.pitCompound = c === "soft" ? "medium" : "soft";
-                  setCfg(next);
-                }}
-              >
-                <span className="dot" style={{ background: TYRE_COLORS[c] }} />
-                <span className="tyre-name">{TYRE_LABEL[c]}</span>
-                <small className="tyre-life">~{lifespan(c)} кр</small>
-              </button>
-            ))}
+        {!isOnboarding && (
+          <div className="field">
+            <span>Стартовая резина <em className="lifespan-hint">≈ {lifespan(cfg.startingTyre)} кругов до деградации</em></span>
+            <div className="tyre-pick">
+              {(["soft", "medium", "hard"] as TyreCompound[]).map((c) => (
+                <button
+                  key={c}
+                  className={`tyre-pick-btn ${c === cfg.startingTyre ? "selected" : ""}`}
+                  style={{ borderColor: c === cfg.startingTyre ? TYRE_COLORS[c] : undefined }}
+                  onClick={() => {
+                    const next = { ...cfg, startingTyre: c };
+                    if (next.pitCompound === c) next.pitCompound = c === "soft" ? "medium" : "soft";
+                    setCfg(next);
+                  }}
+                >
+                  <span className="dot" style={{ background: TYRE_COLORS[c] }} />
+                  <span className="tyre-name">{TYRE_LABEL[c]}</span>
+                  <small className="tyre-life">~{lifespan(c)} кр</small>
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
-        <div className="field strategy-note">
-          <span>Стратегия пит-стопа</span>
-          <p className="hint">
-            Состав на пит выбирается <strong>во время гонки</strong> (панель «Пит-стоп»). Soft быстр, но умирает через ~{lifespan("soft")} круг. — обычно питаться на {lifespan("soft")}-{lifespan("soft") + 1}-м круге. По правилу Ф1 состав нужно <strong>сменить</strong>.
-          </p>
-        </div>
+        {!isOnboarding && (
+          <div className="field strategy-note">
+            <span>Стратегия пит-стопа</span>
+            <p className="hint">
+              Состав на пит выбирается <strong>во время гонки</strong> (панель «Пит-стоп»). Soft быстр, но умирает через ~{lifespan("soft")} круг. — обычно питаться на {lifespan("soft")}-{lifespan("soft") + 1}-м круге. По правилу Ф1 состав нужно <strong>сменить</strong>.
+            </p>
+          </div>
+        )}
 
         {showYandexButton && (
           <div className="oauth-login-row">
@@ -223,9 +237,14 @@ export function SetupScreen({ onStart, initialHero, authProfile, onLoginYandex, 
           </div>
         )}
 
-        <button className="start-btn" disabled={!canStart} onClick={() => onStart(cfg)}>
-          На стартовую решётку →
+        <button
+          className="start-btn"
+          disabled={!canStart || submitting}
+          onClick={() => onStart(cfg)}
+        >
+          {submitting ? "Сохранение…" : isOnboarding ? "Подтвердить и продолжить →" : "На стартовую решётку →"}
         </button>
+        {submitError && <p className="warn-text">{submitError}</p>}
         {!nameValid && <p className="warn-text">Введите имя (минимум 2 символа)</p>}
         {!pointsValid && nameValid && <p className="warn-text">Распределите все {STARTING_POINTS} очков</p>}
       </div>

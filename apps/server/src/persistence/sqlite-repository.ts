@@ -1,11 +1,12 @@
 import Database from "better-sqlite3";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import type { PilotProfile } from "@f1race/race-engine";
+import { ABSOLUTE_SKILL_MAX, clampSkill, type PilotProfile, type SkillKey } from "@f1race/race-engine";
 import type {
   DriverProfile,
   DriverProfileRepository,
   RaceHistoryRow,
+  TrainingJob,
 } from "./repository.js";
 
 interface ProfileRow {
@@ -13,6 +14,7 @@ interface ProfileRow {
   hero: string;
   totalXp: number;
   racesCount: number;
+  heroConfirmed: number;
   createdAt: number;
   updatedAt: number;
 }
@@ -28,14 +30,35 @@ interface HistoryRow {
   dnf: number;
 }
 
+interface TrainingRow {
+  id: number;
+  profileId: string;
+  targetSkill: string;
+  startedAt: number;
+  durationSec: number;
+  completedAt: number | null;
+}
+
 function toProfile(r: ProfileRow): DriverProfile {
   return {
     guestId: r.guestId,
     hero: JSON.parse(r.hero) as PilotProfile,
     totalXp: r.totalXp,
     racesCount: r.racesCount,
+    heroConfirmed: r.heroConfirmed !== 0,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
+  };
+}
+
+function toTraining(r: TrainingRow): TrainingJob {
+  return {
+    id: r.id,
+    profileId: r.profileId,
+    targetSkill: r.targetSkill as SkillKey,
+    startedAt: r.startedAt,
+    durationSec: r.durationSec,
+    completedAt: r.completedAt,
   };
 }
 
@@ -46,6 +69,11 @@ export class SqliteDriverProfileRepository implements DriverProfileRepository {
   private stmtAddRace: Database.Statement;
   private stmtHistory: Database.Statement;
   private txFinish: (profile: DriverProfile, row: RaceHistoryRow) => void;
+  private stmtGetActiveTraining: Database.Statement;
+  private stmtStartTraining: Database.Statement;
+  private stmtGetTrainingById: Database.Statement;
+  private stmtCancelTraining: Database.Statement;
+  private txCompleteTraining: (training: TrainingJob, profile: DriverProfile) => void;
 
   constructor(dbPath: string) {
     if (dbPath !== ":memory:") mkdirSync(dirname(dbPath), { recursive: true });
@@ -75,15 +103,36 @@ export class SqliteDriverProfileRepository implements DriverProfileRepository {
         dnf INTEGER NOT NULL,
         FOREIGN KEY (profileId) REFERENCES profiles(guestId)
       );
+      CREATE TABLE IF NOT EXISTS trainings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        profileId TEXT NOT NULL,
+        targetSkill TEXT NOT NULL,
+        startedAt INTEGER NOT NULL,
+        durationSec INTEGER NOT NULL,
+        completedAt INTEGER,
+        FOREIGN KEY (profileId) REFERENCES profiles(guestId)
+      );
     `);
+    // Idempotent column migration: pre-existing profiles tables predate heroConfirmed.
+    // A profile that already existed is treated as already confirmed (DEFAULT 1) so legacy
+    // players are not re-gated through SetupScreen; only brand-new Yandex users start at 0.
+    const cols = this.db.pragma("table_info(profiles)") as { name: string }[];
+    if (!cols.some((c) => c.name === "heroConfirmed")) {
+      this.db.exec("ALTER TABLE profiles ADD COLUMN heroConfirmed INTEGER NOT NULL DEFAULT 1");
+    }
+    this.db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_trainings_profile ON trainings(profileId, completedAt)",
+    );
+
     this.stmtGet = this.db.prepare("SELECT * FROM profiles WHERE guestId = ?");
     this.stmtUpsert = this.db.prepare(`
-      INSERT INTO profiles (guestId, hero, totalXp, racesCount, createdAt, updatedAt)
-      VALUES (@guestId, @hero, @totalXp, @racesCount, @createdAt, @updatedAt)
+      INSERT INTO profiles (guestId, hero, totalXp, racesCount, heroConfirmed, createdAt, updatedAt)
+      VALUES (@guestId, @hero, @totalXp, @racesCount, @heroConfirmed, @createdAt, @updatedAt)
       ON CONFLICT(guestId) DO UPDATE SET
         hero = excluded.hero,
         totalXp = excluded.totalXp,
         racesCount = excluded.racesCount,
+        heroConfirmed = excluded.heroConfirmed,
         updatedAt = excluded.updatedAt
     `);
     this.stmtAddRace = this.db.prepare(`
@@ -101,6 +150,34 @@ export class SqliteDriverProfileRepository implements DriverProfileRepository {
       upsert.run(this.profileParams(profile));
       addRace.run(this.historyParams(row));
     });
+
+    this.stmtGetActiveTraining = this.db.prepare(
+      "SELECT * FROM trainings WHERE profileId = ? AND completedAt IS NULL ORDER BY startedAt DESC LIMIT 1",
+    );
+    this.stmtStartTraining = this.db.prepare(`
+      INSERT INTO trainings (profileId, targetSkill, startedAt, durationSec, completedAt)
+      VALUES (@profileId, @targetSkill, @startedAt, @durationSec, NULL)
+    `);
+    this.stmtGetTrainingById = this.db.prepare("SELECT * FROM trainings WHERE id = ?");
+    this.stmtCancelTraining = this.db.prepare("DELETE FROM trainings WHERE id = ?");
+    const markComplete = this.db.prepare(
+      "UPDATE trainings SET completedAt = ? WHERE id = ?",
+    );
+    this.txCompleteTraining = this.db.transaction((training: TrainingJob, profile: DriverProfile) => {
+      const skill = training.targetSkill;
+      const next = clampSkill(profile.hero.skills[skill] + 1);
+      const leveledUp = next > profile.hero.skills[skill];
+      if (leveledUp) {
+        const hero: PilotProfile = {
+          ...profile.hero,
+          skills: { ...profile.hero.skills, [skill]: next },
+        };
+        profile.hero = hero;
+      }
+      profile.updatedAt = training.startedAt + training.durationSec;
+      upsert.run(this.profileParams(profile));
+      markComplete.run(profile.updatedAt, training.id);
+    });
   }
 
   private profileParams(profile: DriverProfile) {
@@ -109,6 +186,7 @@ export class SqliteDriverProfileRepository implements DriverProfileRepository {
       hero: JSON.stringify(profile.hero),
       totalXp: profile.totalXp,
       racesCount: profile.racesCount,
+      heroConfirmed: profile.heroConfirmed ? 1 : 0,
       createdAt: profile.createdAt,
       updatedAt: profile.updatedAt,
     };
@@ -158,7 +236,28 @@ export class SqliteDriverProfileRepository implements DriverProfileRepository {
     }));
   }
 
+  getActiveTraining(profileId: string): TrainingJob | null {
+    const r = this.stmtGetActiveTraining.get(profileId) as TrainingRow | undefined;
+    return r ? toTraining(r) : null;
+  }
+
+  startTraining(profileId: string, skill: SkillKey, startedAt: number, durationSec: number): TrainingJob {
+    const info = this.stmtStartTraining.run({ profileId, targetSkill: skill, startedAt, durationSec });
+    const r = this.stmtGetTrainingById.get(Number(info.lastInsertRowid)) as TrainingRow;
+    return toTraining(r);
+  }
+
+  cancelTraining(id: number): void {
+    this.stmtCancelTraining.run(id);
+  }
+
+  completeTraining(training: TrainingJob, profile: DriverProfile): void {
+    this.txCompleteTraining(training, profile);
+  }
+
   close(): void {
     this.db.close();
   }
 }
+
+export const TRAINING_SKILL_CEILING = ABSOLUTE_SKILL_MAX;

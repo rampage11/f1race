@@ -14,6 +14,10 @@ import {
   fatigueFactor,
   levelFromXp,
   divisionForLevel,
+  driverRating,
+  divisionForRating,
+  trainingDurationSec,
+  skillSum,
 } from "../src/index.js";
 
 describe("skills allocation", () => {
@@ -223,5 +227,73 @@ describe("xp / level progression", () => {
     expect(divisionForLevel(34)).toBe("F2");
     expect(divisionForLevel(35)).toBe("F1");
     expect(divisionForLevel(999)).toBe("F1");
+  });
+});
+
+describe("driver rating (two-factor progression)", () => {
+  it("equals level when skillSum === startingPoints (fresh pilot invariant)", () => {
+    expect(driverRating(1, 10)).toBe(1);
+    expect(driverRating(9, 10)).toBe(9);
+    expect(driverRating(34, 10)).toBe(34);
+  });
+
+  it("grows with skillSum beyond the starting points", () => {
+    // weight 0.5: 20 extra points → +10 rating
+    expect(driverRating(1, 30)).toBe(11);
+    expect(driverRating(10, 30)).toBe(20);
+  });
+
+  it("is floored to an integer", () => {
+    expect(driverRating(1, 11)).toBe(1);
+    expect(driverRating(1, 13)).toBe(2);
+  });
+
+  it("divisionForRating preserves fresh-pilot F-boundaries (rating === level)", () => {
+    expect(divisionForRating(1)).toBe("F4");
+    expect(divisionForRating(9)).toBe("F4");
+    expect(divisionForRating(10)).toBe("F3");
+    expect(divisionForRating(19)).toBe("F3");
+    expect(divisionForRating(20)).toBe("F2");
+    expect(divisionForRating(34)).toBe("F2");
+    expect(divisionForRating(35)).toBe("F1");
+  });
+
+  it("training raises rating enough to promote division without racing", () => {
+    // Level 1, but heavily trained: skillSum 30 → rating 11 → F3 (not F4).
+    expect(divisionForRating(driverRating(1, 30))).toBe("F3");
+  });
+
+  it("a fresh pilot's rating-derived division equals their level-derived division", () => {
+    for (const level of [1, 5, 9, 10, 15, 20, 34, 35, 50]) {
+      expect(divisionForRating(driverRating(level, 10))).toBe(divisionForLevel(level));
+    }
+  });
+});
+
+describe("training duration", () => {
+  it("base duration at level 0 equals config base", () => {
+    expect(trainingDurationSec(0)).toBe(CONFIG.training.baseDurationSec);
+  });
+
+  it("grows geometrically with current skill level", () => {
+    const base = CONFIG.training.baseDurationSec;
+    const g = CONFIG.training.growthFactor;
+    expect(trainingDurationSec(0)).toBe(base);
+    expect(trainingDurationSec(1)).toBe(Math.round(base * g));
+    expect(trainingDurationSec(5)).toBe(Math.round(base * Math.pow(g, 5)));
+  });
+
+  it("is strictly increasing in level (diminishing returns via time)", () => {
+    let prev = 0;
+    for (let lvl = 0; lvl <= 15; lvl++) {
+      const d = trainingDurationSec(lvl);
+      expect(d).toBeGreaterThan(prev);
+      prev = d;
+    }
+  });
+
+  it("skillSum sums all six skills", () => {
+    expect(skillSum(emptySkills())).toBe(0);
+    expect(skillSum({ ...emptySkills(), pace: 3, attack: 2, defense: 2, fitness: 1, reaction: 1, tyreMgmt: 1 })).toBe(10);
   });
 });

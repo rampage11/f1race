@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import type { PilotProfile } from "@f1race/race-engine";
 import { SetupScreen } from "./race/SetupScreen";
 import { RaceView } from "./race/RaceView";
+import { LandingScreen } from "./LandingScreen";
+import { HubScreen } from "./HubScreen";
+import { confirmHero } from "./api";
 import {
   beginYandexLogin,
   clearAuth,
@@ -10,7 +13,6 @@ import {
   getAuthProfile,
   getOrCreateGuestId,
   isYandexCallbackPath,
-  readCachedProfile,
   readYandexCallbackParams,
   setAuthProfile,
   setAuthToken,
@@ -22,13 +24,22 @@ type CallbackStatus =
   | { kind: "exchanging" }
   | { kind: "error"; message: string };
 
+type Screen = "landing" | "onboarding" | "hub" | "race";
+
+function deriveInitialScreen(p: DriverProfileSummary | null): Screen {
+  if (!p) return "landing";
+  return p.heroConfirmed ? "hub" : "onboarding";
+}
+
 export default function App() {
   const [guestId] = useState(() => getOrCreateGuestId());
-  const [hero, setHero] = useState<PilotProfile | null>(null);
   const [authProfile, setAuthProfileState] = useState<DriverProfileSummary | null>(() => getAuthProfile());
+  const [screen, setScreen] = useState<Screen>(() => deriveInitialScreen(getAuthProfile()));
   const [callbackStatus, setCallbackStatus] = useState<CallbackStatus>(() =>
     isYandexCallbackPath() ? { kind: "exchanging" } : { kind: "idle" },
   );
+  const [confirming, setConfirming] = useState(false);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
   const processedRef = useRef(false);
 
   useEffect(() => {
@@ -63,6 +74,7 @@ export default function App() {
         setAuthToken(result.sessionToken);
         setAuthProfile(result.profile);
         setAuthProfileState(result.profile);
+        setScreen(deriveInitialScreen(result.profile));
         setCallbackStatus({ kind: "idle" });
       } else if (result.notConfigured) {
         setCallbackStatus({ kind: "error", message: "Вход через Яндекс недоступен" });
@@ -75,6 +87,26 @@ export default function App() {
     };
   }, []);
 
+  async function handleConfirm(cfg: PilotProfile) {
+    setConfirming(true);
+    setConfirmError(null);
+    const result = await confirmHero(cfg);
+    setConfirming(false);
+    if (!result.ok || !result.profile) {
+      setConfirmError(result.error ?? "Не удалось сохранить пилота");
+      return;
+    }
+    setAuthProfile(result.profile);
+    setAuthProfileState(result.profile);
+    setScreen(result.profile.heroConfirmed ? "hub" : "onboarding");
+  }
+
+  function handleLogout() {
+    clearAuth();
+    setAuthProfileState(null);
+    setScreen("landing");
+  }
+
   if (callbackStatus.kind === "exchanging") {
     return (
       <div className="oauth-loading">
@@ -84,27 +116,50 @@ export default function App() {
     );
   }
 
-  if (!hero) {
-    const cached = readCachedProfile();
-    const initialHero = authProfile?.hero ?? cached?.hero;
-    return (
-      <>
-        {callbackStatus.kind === "error" && (
-          <div className="oauth-toast">{callbackStatus.message}</div>
-        )}
-        <SetupScreen
-          initialHero={initialHero}
-          authProfile={authProfile}
-          onLoginYandex={beginYandexLogin}
-          onLogout={() => {
-            clearAuth();
-            setAuthProfileState(null);
-            setCallbackStatus({ kind: "idle" });
-          }}
-          onStart={(cfg) => setHero(cfg)}
-        />
-      </>
-    );
+  let active: Screen;
+  if (screen === "race" && authProfile) {
+    active = "race";
+  } else if (!authProfile) {
+    active = "landing";
+  } else if (!authProfile.heroConfirmed) {
+    active = "onboarding";
+  } else {
+    active = "hub";
   }
-  return <RaceView hero={hero} guestId={guestId} onChangeDriver={() => setHero(null)} />;
+
+  return (
+    <>
+      {callbackStatus.kind === "error" && (
+        <div className="oauth-toast">{callbackStatus.message}</div>
+      )}
+      {active === "landing" && <LandingScreen onLogin={beginYandexLogin} />}
+      {active === "onboarding" && authProfile && (
+        <SetupScreen
+          mode="onboarding"
+          initialHero={authProfile.hero}
+          authProfile={authProfile}
+          onStart={handleConfirm}
+          submitting={confirming}
+          submitError={confirmError}
+        />
+      )}
+      {active === "hub" && authProfile && (
+        <HubScreen
+          profile={authProfile}
+          onRace={() => setScreen("race")}
+          onLogout={handleLogout}
+        />
+      )}
+      {active === "race" && authProfile && (
+        <RaceView
+          hero={authProfile.hero}
+          guestId={guestId}
+          onChangeDriver={() => {
+            setScreen("hub");
+            setAuthProfileState(getAuthProfile());
+          }}
+        />
+      )}
+    </>
+  );
 }
