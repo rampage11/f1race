@@ -1,0 +1,40 @@
+.footer {
+  border-top: 1px solid var(--c-border);
+  padding-block: 2rem;
+  background: var(--c-bg);
+}
+
+.footer .container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.brand {
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  color: var(--c-text-dim);
+}
+
+.legal a {
+  font-size: 0.85rem;
+  color: var(--c-text-dim);
+  opacity: 0.6;
+  pointer-events: none;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.legal a:hover {
+  color: var(--c-text);
+  opacity: 1;
+}
+
+@media (max-width: 480px) {
+  .footer {
+    padding-bottom: calc(2rem + env(safe-area-inset-bottom) + 64px);
+  }
+}

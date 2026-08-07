@@ -1,0 +1,75 @@
+.hero {
+  position: relative;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--c-bg);
+  overflow: hidden;
+}
+
+.stripRegion {
+  position: relative;
+  height: 35vh;
+  flex: none;
+  background:
+    linear-gradient(to bottom, rgba(12, 15, 19, 0.4), rgba(12, 15, 19, 0.6)),
+    url("/img/hero-bg.webp") center/cover no-repeat,
+    #0a0d12;
+}
+
+.fade {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 45%;
+  background: linear-gradient(to bottom, transparent 0%, var(--c-bg) 100%);
+  pointer-events: none;
+}
+
+.ribbonRegion {
+  display: none;
+  padding: 2.5rem var(--gutter) 0;
+}
+
+.body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 1.25rem;
+  padding-block: var(--sector-pad-y);
+}
+
+.title {
+  font-family: var(--font-display);
+  font-size: clamp(2.2rem, 6vw, 4rem);
+  font-weight: 700;
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+  color: var(--c-text);
+}
+
+.subtitle {
+  font-family: var(--font-body);
+  font-size: clamp(1rem, 1.6vw, 1.15rem);
+  color: var(--c-text-dim);
+  max-width: 52ch;
+  line-height: 1.5;
+}
+
+@media (max-width: 480px) {
+  .stripRegion {
+    display: none;
+  }
+  .ribbonRegion {
+    display: block;
+  }
+}

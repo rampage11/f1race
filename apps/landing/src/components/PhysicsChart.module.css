@@ -1,0 +1,166 @@
+.wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  padding-block: var(--sector-pad-y);
+  background: url("/img/sector-physics.webp") center/cover no-repeat, var(--c-bg);
+  overflow: hidden;
+}
+
+.wrap > * {
+  position: relative;
+  z-index: 1;
+}
+
+.wrap::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: linear-gradient(to bottom, var(--c-bg) 0%, rgba(12, 15, 19, 0.82) 45%, rgba(12, 15, 19, 0.82) 55%, var(--c-bg) 100%);
+}
+
+.chartHolder {
+  width: 100%;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-md);
+  background: var(--c-surface);
+  padding: 0.85rem 0.6rem 0.35rem;
+}
+
+.svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.clipRect {
+  transition: width 1.5s var(--ease-accel);
+}
+
+.area {
+  stroke: none;
+}
+
+.grid {
+  stroke: var(--c-border);
+  stroke-width: 1;
+  shape-rendering: crispEdges;
+}
+
+.frame {
+  fill: none;
+  stroke: var(--c-border-strong);
+  stroke-width: 1;
+  shape-rendering: crispEdges;
+}
+
+.tickLabel {
+  fill: var(--c-text-dim);
+  font-size: 11px;
+}
+
+.axisTitle {
+  fill: var(--c-text-faint);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.facts {
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.6rem 1.5rem;
+}
+
+.fact {
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-start;
+  font-size: 0.92rem;
+  color: var(--c-text-dim);
+  line-height: 1.45;
+}
+
+.factDot {
+  flex: none;
+  margin-top: 0.55em;
+  width: 6px;
+  height: 6px;
+  background: var(--c-accent-pb);
+  border-radius: 50%;
+}
+
+.factStrong {
+  color: var(--c-text);
+  font-weight: 500;
+}
+
+.mobile {
+  display: none;
+}
+
+.bigGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.6rem;
+  margin-bottom: 0.75rem;
+}
+
+.big {
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-md);
+  background: var(--c-surface);
+  padding: 0.9rem 0.7rem;
+}
+
+.bigNum {
+  font-size: 1.7rem;
+  color: var(--c-text);
+  line-height: 1.1;
+}
+
+.bigUnit {
+  font-size: 0.78rem;
+  color: var(--c-text-dim);
+  margin-left: 0.25rem;
+}
+
+.bigLabel {
+  font-size: 0.7rem;
+  color: var(--c-text-faint);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-top: 0.4rem;
+}
+
+.expand {
+  width: 100%;
+  padding: 0.65rem;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--c-text-dim);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+@media (max-width: 480px) {
+  .chartHolder {
+    display: none;
+  }
+  .chartHolderOpen {
+    display: block;
+  }
+  .mobile {
+    display: block;
+  }
+  .facts {
+    grid-template-columns: 1fr;
+  }
+}

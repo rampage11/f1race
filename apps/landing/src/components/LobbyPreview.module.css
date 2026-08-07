@@ -1,0 +1,119 @@
+.card {
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-md);
+  background: var(--c-surface);
+  padding: 1rem 1.1rem 1.1rem;
+  overflow: hidden;
+}
+
+.head {
+  font-size: 0.74rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  color: var(--c-text-dim);
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--c-border);
+}
+
+.list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 2.2rem 2.6rem 1fr 0.9rem 4.2rem;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.6rem 0.4rem;
+  border-bottom: 1px solid var(--c-border);
+}
+
+.row:last-child {
+  border-bottom: none;
+}
+
+.pos {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--c-text-dim);
+}
+
+.plate {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.6rem;
+  height: 1.7rem;
+  border: 1px solid var(--c-border-strong);
+  border-radius: 4px;
+  background: var(--c-surface-2);
+}
+
+.plateNo {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--c-text);
+}
+
+.name {
+  font-size: 0.95rem;
+  color: var(--c-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tyre {
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
+}
+
+.gap {
+  font-size: 0.9rem;
+  color: var(--c-text);
+  text-align: right;
+}
+
+.hero {
+  position: relative;
+  background: linear-gradient(90deg, rgba(157, 78, 255, 0.14), rgba(157, 78, 255, 0.02));
+  box-shadow: inset 3px 0 0 var(--c-accent-pb);
+}
+
+.hero .pos,
+.hero .name,
+.hero .gap {
+  color: var(--c-text);
+}
+
+.notes {
+  margin-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.note {
+  font-size: 0.74rem;
+  letter-spacing: 0.02em;
+  color: var(--c-text-faint);
+  line-height: 1.5;
+}
+
+@media (max-width: 480px) {
+  .card {
+    padding: 0.8rem 0.8rem 0.9rem;
+  }
+  .row {
+    grid-template-columns: 1.8rem 2.4rem 1fr 0.9rem 3.6rem;
+    gap: 0.6rem;
+    padding: 0.55rem 0.2rem;
+  }
+  .name {
+    font-size: 0.88rem;
+  }
+}

@@ -1,0 +1,38 @@
+.bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 40;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 0.7rem var(--gutter);
+  padding-bottom: calc(0.7rem + env(safe-area-inset-bottom));
+  background: linear-gradient(to top, var(--c-bg) 62%, rgba(12, 15, 19, 0));
+  border-top: 1px solid var(--c-border);
+  transform: translateY(115%);
+  transition: transform 0.32s var(--ease-accel);
+  will-change: transform;
+}
+
+.shown {
+  transform: translateY(0);
+}
+
+.btn {
+  width: 100%;
+  max-width: 30rem;
+}
+
+@media (max-width: 480px) {
+  .bar {
+    display: flex;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bar {
+    transition-duration: 0.001ms;
+  }
+}

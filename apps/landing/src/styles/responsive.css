@@ -1,0 +1,12 @@
+@media (max-width: 480px) {
+  :root {
+    --sector-pad-y: clamp(3.25rem, 14vw, 4.5rem);
+    --gutter: 1.1rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
