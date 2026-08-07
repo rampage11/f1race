@@ -30,6 +30,7 @@ import {
   START_SEQUENCE_DELAY_MS,
   START_LATE_REACTION_SEC,
   resolveEffectiveReactionSec,
+  randomStartDelayMs,
 } from "./start-sequence.js";
 
 const TICK_MS = 100;
@@ -430,7 +431,7 @@ export class Room {
     if (this.stage === "qualy" && this.qualy) {
       let n = steps;
       while (n-- > 0 && this.qualy.phase === "running") this.qualy.step(DT);
-      if (this.qualy.phase === "finished") this.beginStartSequence();
+      if (this.qualy.phase === "finished") this.beginStartSequence(randomStartDelayMs());
       this.emitSnapshot();
     } else if (this.stage === "race" && this.race) {
       let n = steps;

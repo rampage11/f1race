@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { MyStartResult } from "./useRaceSession";
 
-const LIGHT_PRE_MS = 5000;
 const POST_BUFFER_MS = 5000;
 
 interface Props {
@@ -14,6 +13,7 @@ interface Props {
 
 export function StartLights({ lightsOutAt, sequenceId, myStartResult, reacted, onReact }: Props) {
   const [now, setNow] = useState(() => Date.now());
+  const [seqStart] = useState(() => Date.now());
   const [localJump, setLocalJump] = useState(false);
 
   useEffect(() => {
@@ -54,7 +54,7 @@ export function StartLights({ lightsOutAt, sequenceId, myStartResult, reacted, o
   }, []);
 
   const lightsOut = now >= lightsOutAt;
-  const lit = [0, 1, 2, 3, 4].map((i) => !lightsOut && now >= lightsOutAt - (5 - i) * 1000);
+  const lit = [0, 1, 2, 3, 4].map((i) => !lightsOut && now >= seqStart + (i + 1) * 1000);
 
   return (
     <div
@@ -82,7 +82,7 @@ export function StartLights({ lightsOutAt, sequenceId, myStartResult, reacted, o
             </>
           ) : lightsOut ? (
             <div className="go">GO!</div>
-          ) : now < lightsOutAt - LIGHT_PRE_MS ? (
+          ) : now < seqStart + 1000 ? (
             <div className="prompt">Приготовиться…</div>
           ) : (
             <div className="prompt">Красные загораются — реагируй на погасание</div>

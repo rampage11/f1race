@@ -6,7 +6,7 @@ const AUTH_TOKEN_KEY = "f1race.authToken";
 const AUTH_PROFILE_KEY = "f1race.authProfile";
 const YANDEX_STATE_KEY = "yandex_oauth_state";
 
-export const YANDEX_CALLBACK_PATH = "/yandex-callback";
+export const YANDEX_CALLBACK_PATH = "/play/yandex-callback";
 
 export type Division = "F4" | "F3" | "F2" | "F1";
 

@@ -5,6 +5,21 @@
 // before the random-ish "lights out" instant that clients render a countdown to.
 export const START_SEQUENCE_DELAY_MS = 6000;
 
+// Illumination window: 5 lights, ~1s apart. The client lights one per second over this span
+// measured from sequence receipt — decoupled from lightsOutAt so the hold below can be random.
+export const START_ILLUM_MS = 5000;
+
+// Random hold between the 5th light illuminating and lights-out. This is the actual reaction
+// window's "go" jitter — a predictable hold lets a player count down and pre-react, defeating
+// the point of a reaction test. Range tuned sub-2.5s so the sequence never drags.
+export const START_HOLD_MIN_MS = 700;
+export const START_HOLD_MAX_MS = 2500;
+
+// Production delayMs for beginStartSequence: fixed illumination window + random hold.
+export function randomStartDelayMs(): number {
+  return START_ILLUM_MS + START_HOLD_MIN_MS + Math.random() * (START_HOLD_MAX_MS - START_HOLD_MIN_MS);
+}
+
 // Hard deadline after lights out. Players who do not send startReaction within this
 // window get START_LATE_REACTION_SEC. Also caps how long the room waits before resolving
 // when not every human has reacted. Reactions are measured against the server clock at

@@ -16,6 +16,7 @@ import {
   readYandexCallbackParams,
   setAuthProfile,
   setAuthToken,
+  YANDEX_CALLBACK_PATH,
 } from "./identity";
 import type { DriverProfileSummary } from "./identity";
 
@@ -48,20 +49,20 @@ export default function App() {
     processedRef.current = true;
 
     const { code, state, error } = readYandexCallbackParams();
-    const redirectUri = `${window.location.origin}/yandex-callback`;
+    const redirectUri = `${window.location.origin}${YANDEX_CALLBACK_PATH}`;
 
     if (error) {
-      window.history.replaceState({}, "", "/");
+      window.history.replaceState({}, "", "/play/");
       setCallbackStatus({ kind: "error", message: `Яндекс отклонил вход: ${error}` });
       return;
     }
     if (!consumeYandexState(state)) {
-      window.history.replaceState({}, "", "/");
+      window.history.replaceState({}, "", "/play/");
       setCallbackStatus({ kind: "error", message: "Яндекс: неверный state, попробуйте снова" });
       return;
     }
     if (!code) {
-      window.history.replaceState({}, "", "/");
+      window.history.replaceState({}, "", "/play/");
       setCallbackStatus({ kind: "error", message: "Яндекс не вернул код авторизации" });
       return;
     }
@@ -69,7 +70,7 @@ export default function App() {
     let cancelled = false;
     exchangeYandexCode(code, redirectUri).then((result) => {
       if (cancelled) return;
-      window.history.replaceState({}, "", "/");
+      window.history.replaceState({}, "", "/play/");
       if (result.ok && result.sessionToken && result.profile) {
         setAuthToken(result.sessionToken);
         setAuthProfile(result.profile);
