@@ -2,9 +2,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { SkillKey } from "@f1race/race-engine";
 import { ABSOLUTE_SKILL_MAX } from "@f1race/race-engine";
 import type { DriverProfileSummary } from "./identity";
-import { SKILL_META, skillLabel } from "./skills";
+import { skillLabel } from "./skills";
 import { cancelTraining, fetchTrainingState, startTraining } from "./api";
 import type { TrainingCallResult, TrainingStateDto, TrainingStateResponse } from "./api";
+import styles from "./HubScreen.module.css";
 
 export interface HubScreenProps {
   profile: DriverProfileSummary;
@@ -12,34 +13,37 @@ export interface HubScreenProps {
   onLogout: () => void;
 }
 
-interface ActivityMeta {
-  skill: SkillKey;
-  icon: string;
+interface BuildingDef {
+  id: "race" | SkillKey;
+  role: "race" | "training";
+  skill?: SkillKey;
   name: string;
+  img: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
 }
 
-const ACTIVITIES: ActivityMeta[] = [
-  { skill: "fitness", icon: "🏋️", name: "Тренажёрный зал" },
-  { skill: "pace", icon: "🏁", name: "Симулятор" },
-  { skill: "reaction", icon: "⚡", name: "Реакционный тренажёр" },
-  { skill: "attack", icon: "🏎️", name: "Картодром" },
-  { skill: "tyreMgmt", icon: "📊", name: "Телеметрия" },
-  { skill: "defense", icon: "🧠", name: "Медиа-тренинг" },
+const BASE = import.meta.env.BASE_URL;
+const asset = (p: string): string => `${BASE}${p}`;
+
+const BUILDINGS: BuildingDef[] = [
+  { id: "fitness", role: "training", skill: "fitness", name: "Тренажёрный зал", img: asset("img/hub/building-fitness.png"), x: 4, y: 13, w: 21, h: 17 },
+  { id: "pace", role: "training", skill: "pace", name: "Симулятор", img: asset("img/hub/building-pace.png"), x: 39, y: 11, w: 22, h: 17 },
+  { id: "reaction", role: "training", skill: "reaction", name: "Реакция", img: asset("img/hub/building-reaction.png"), x: 74, y: 13, w: 22, h: 17 },
+  { id: "attack", role: "training", skill: "attack", name: "Картодром", img: asset("img/hub/building-attack.png"), x: 3, y: 32, w: 22, h: 17 },
+  { id: "tyreMgmt", role: "training", skill: "tyreMgmt", name: "Телеметрия", img: asset("img/hub/building-tyreMgmt.png"), x: 39, y: 31, w: 22, h: 17 },
+  { id: "defense", role: "training", skill: "defense", name: "Медиа-центр", img: asset("img/hub/building-defense.png"), x: 75, y: 32, w: 22, h: 17 },
+  { id: "race", role: "race", name: "Гонка", img: asset("img/hub/building-race.png"), x: 27, y: 51, w: 46, h: 31 },
 ];
-
-function activityName(skill: SkillKey): string {
-  return ACTIVITIES.find((a) => a.skill === skill)?.name ?? skill;
-}
 
 function flagEmoji(code: string): string {
   if (!code || code.length !== 2) return "🏳️";
   const A = 0x1f1e6;
   const base = "A".charCodeAt(0);
   const up = code.toUpperCase();
-  return String.fromCodePoint(
-    A + up.charCodeAt(0) - base,
-    A + up.charCodeAt(1) - base,
-  );
+  return String.fromCodePoint(A + up.charCodeAt(0) - base, A + up.charCodeAt(1) - base);
 }
 
 function fmtRemaining(sec: number): string {
@@ -154,92 +158,87 @@ export function HubScreen({ profile, onRace, onLogout }: HubScreenProps) {
   const activeSkill = training.status === "active" ? training.skill : null;
   const remaining = activeEndsAt > 0 ? Math.max(0, Math.round((activeEndsAt - now) / 1000)) : 0;
   const hero = localProfile.hero;
+  const skillValue = (k: SkillKey) => hero.skills[k];
 
   return (
-    <div className="hub">
-      {toast && <div className="hub-toast">{toast}</div>}
+    <div className={styles.root}>
+      {toast && <div className={styles.toast}>{toast}</div>}
+      {error && <div className={styles.error}>{error}</div>}
 
-      <div className="hub-pilot-card">
-        <div className="hub-pilot-head">
-          <div className="hub-pilot-name">
-            <span className="hub-flag">{flagEmoji(hero.country)}</span>
-            <strong>{hero.name}</strong>
-            <span className="team-dot-inline" style={{ background: teamColorOf(hero.team) }} />
-            <span className="hub-team">{hero.team}</span>
+      <div className={styles.map}>
+        <img className={styles.bg} src={asset("img/hub/hub-bg.png")} alt="" draggable={false} />
+
+        <div className={styles.hud}>
+          <div className={styles.hudLeft}>
+            <span className={styles.flag}>{flagEmoji(hero.country)}</span>
+            <div className={styles.hudId}>
+              <strong className={styles.hudName}>{hero.name}</strong>
+              <span className={styles.hudMeta}>
+                <span className={styles.teamDot} style={{ background: teamColorOf(hero.team) }} />
+                {hero.team}
+              </span>
+            </div>
           </div>
-          <button className="auth-logout" onClick={onLogout}>Выйти</button>
+          <div className={styles.hudRight}>
+            <span className={styles.hudStat}>{localProfile.division} · {localProfile.driverRating}</span>
+            <span className={styles.hudStat}>Ур. {localProfile.level}</span>
+            <button className={styles.logout} onClick={onLogout}>Выйти</button>
+          </div>
         </div>
-        <div className="hub-pilot-meta">
-          <span className="hub-div-line">{localProfile.division} · рейтинг {localProfile.driverRating}</span>
-          <span className="hub-level">Уровень {localProfile.level}</span>
-          <span className="hub-muted">Гонок: {localProfile.racesCount} · {localProfile.totalXp} XP</span>
-        </div>
-      </div>
 
-      <div className="hub-skills">
-        <h2 className="hub-section-title">Навыки пилота</h2>
-        <div className="hub-skill-list">
-          {SKILL_META.map((s) => {
-            const value = hero.skills[s.key];
-            const pct = Math.min(100, (value / ABSOLUTE_SKILL_MAX) * 100);
-            return (
-              <div className="skill-bar" key={s.key}>
-                <div className="skill-bar-head">
-                  <span className="skill-bar-name">{s.label}</span>
-                  <span className="skill-bar-value">{value}<span className="skill-bar-max">/{ABSOLUTE_SKILL_MAX}</span></span>
-                </div>
-                <div className="skill-bar-track">
-                  <div className="skill-bar-fill" style={{ width: `${pct}%` }} />
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      <div className="hub-activities">
-        <h2 className="hub-section-title">Тренировки</h2>
-        {activeSkill && (
-          <p className="hub-active-hint">Идёт тренировка: {activityName(activeSkill)}</p>
-        )}
-        <div className="activity-grid">
-          {ACTIVITIES.map((a) => {
-            const isActive = activeSkill === a.skill;
-            const maxed = hero.skills[a.skill] >= ABSOLUTE_SKILL_MAX;
-            const disabled = busy || (!!activeSkill && !isActive) || (maxed && !isActive);
-            return (
-              <div className={`activity-card ${isActive ? "active" : ""}`} key={a.skill}>
-                <div className="activity-card-head">
-                  <span className="activity-icon" aria-hidden="true">{a.icon}</span>
-                  <div className="activity-card-titles">
-                    <span className="activity-name">{a.name}</span>
-                    <span className="activity-target">→ {skillLabel(a.skill)}</span>
-                  </div>
-                </div>
-                {isActive ? (
-                  <div className="activity-running">
-                    <span className="activity-countdown">{fmtRemaining(remaining)}</span>
-                    <button className="activity-cancel" disabled={busy} onClick={handleCancel}>Отменить</button>
-                  </div>
+        {BUILDINGS.map((b) => {
+          const isTraining = b.role === "training";
+          const sk = b.skill;
+          const isActive = isTraining && sk != null && activeSkill === sk;
+          const value = sk != null ? skillValue(sk) : 0;
+          const maxed = isTraining && value >= ABSOLUTE_SKILL_MAX;
+          const disabled = isTraining && (busy || (!!activeSkill && !isActive) || (maxed && !isActive));
+          const onClick = () => {
+            if (b.role === "race") {
+              onRace();
+            } else if (isActive) {
+              handleCancel();
+            } else if (!disabled && sk) {
+              handleStart(sk);
+            }
+          };
+          return (
+            <button
+              key={b.id}
+              className={[
+                styles.building,
+                b.role === "race" ? styles.race : "",
+                isActive ? styles.activeB : "",
+                disabled ? styles.dim : "",
+              ].filter(Boolean).join(" ")}
+              style={{ left: `${b.x}%`, top: `${b.y}%`, width: `${b.w}%`, height: `${b.h}%` }}
+              disabled={isTraining && disabled}
+              aria-label={isTraining ? `${b.name} — ${skillLabel(sk!)} ${value}/${ABSOLUTE_SKILL_MAX}` : "Гонка"}
+              onClick={onClick}
+            >
+              <img className={styles.buildingImg} src={b.img} alt="" draggable={false} />
+              <span className={styles.badge}>
+                {b.role === "race" ? (
+                  <span className={styles.raceBadge}>ГОНКА</span>
                 ) : maxed ? (
-                  <div className="activity-maxed">Максимум</div>
+                  <span className={styles.maxBadge}>MAX</span>
                 ) : (
-                  <button
-                    className="activity-train"
-                    disabled={disabled}
-                    onClick={() => handleStart(a.skill)}
-                  >
-                    Тренировать
-                  </button>
+                  <>
+                    <span className={styles.badgeName}>{b.name}</span>
+                    <span className={styles.badgeVal}>{value}/{ABSOLUTE_SKILL_MAX}</span>
+                  </>
                 )}
-              </div>
-            );
-          })}
-        </div>
-        {error && <p className="warn-text hub-error">{error}</p>}
+              </span>
+              {isActive && (
+                <span className={styles.timer} aria-live="polite">
+                  {fmtRemaining(remaining)}
+                </span>
+              )}
+              {isActive && <span className={styles.cancelHint}>отменить</span>}
+            </button>
+          );
+        })}
       </div>
-
-      <button className="race-cta" onClick={onRace}>🏁 Гонка</button>
     </div>
   );
 }
