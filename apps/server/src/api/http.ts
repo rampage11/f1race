@@ -223,6 +223,35 @@ export async function handleApiRequest(
     return true;
   }
 
+  // POST /api/profile/allocateSkill — spend ONE banked level-up skill point on `skill`
+  // (clamped at the absolute cap). 409 when there are no unspent points or the skill is maxed.
+  if (method === "POST" && path === "/api/profile/allocateSkill") {
+    const profile = requireProfile(req, env);
+    if (!profile) return sendJson401(res, env), true;
+    if (!profile.heroConfirmed) {
+      sendJson(res, 403, { error: "confirm your pilot first" }, env.allowedOrigin);
+      return true;
+    }
+    const body = await readJsonBody(req);
+    if (!body || typeof body !== "object") {
+      sendJson(res, 400, { error: "invalid request body" }, env.allowedOrigin);
+      return true;
+    }
+    const skill = (body as { skill?: unknown }).skill;
+    if (!isSkillKey(skill)) {
+      sendJson(res, 400, { error: "skill must be one of: " + SKILL_KEYS.join(", ") }, env.allowedOrigin);
+      return true;
+    }
+    const ok = env.repository.allocateSkillPoint(profile, skill);
+    if (!ok) {
+      const reason = (profile.unspentSkillPoints ?? 0) <= 0 ? "no skill points to spend" : `${skill} is already at the maximum`;
+      sendJson(res, 409, { error: reason }, env.allowedOrigin);
+      return true;
+    }
+    sendJson(res, 200, buildResponse(env, profile, env.repository.getActiveTraining(profile.guestId), Date.now()), env.allowedOrigin);
+    return true;
+  }
+
   if ((method === "GET" || method === "POST") && path.startsWith("/api/training")) {
     const profile = requireProfile(req, env);
     if (!profile) return sendJson401(res, env), true;

@@ -13,6 +13,7 @@ import {
   computeStartOutcome,
   fatigueFactor,
   levelFromXp,
+  levelUpPointsAccrued,
   divisionForLevel,
   driverRating,
   divisionForRating,
@@ -267,6 +268,26 @@ describe("driver rating (two-factor progression)", () => {
     for (const level of [1, 5, 9, 10, 15, 20, 34, 35, 50]) {
       expect(divisionForRating(driverRating(level, 10))).toBe(divisionForLevel(level));
     }
+  });
+});
+
+describe("levelUpPointsAccrued", () => {
+  it("returns 0 when no level is gained", () => {
+    expect(levelUpPointsAccrued(0, 50)).toBe(0);
+    expect(levelUpPointsAccrued(500, 500)).toBe(0);
+  });
+
+  it("returns pointsPerLevel per level gained (and never negative)", () => {
+    const ppl = CONFIG.skills.pointsPerLevel;
+    const low = 0; // level 1
+    const hi = 500; // level 3 under the 1.3 curve (100 + 246 = 346 for L3)
+    const gained = levelFromXp(hi) - levelFromXp(low);
+    expect(gained).toBeGreaterThan(0);
+    expect(levelUpPointsAccrued(low, hi)).toBe(gained * ppl);
+  });
+
+  it("never accrues for an XP loss", () => {
+    expect(levelUpPointsAccrued(500, 100)).toBe(0);
   });
 });
 

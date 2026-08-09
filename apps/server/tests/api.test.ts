@@ -374,6 +374,49 @@ describe("/api/profile/respec", () => {
   });
 });
 
+describe("/api/profile/allocateSkill (level-up points)", () => {
+  function setBank(guestId: string, points: number): void {
+    const p = repo.get(guestId);
+    if (p) {
+      p.unspentSkillPoints = points;
+      repo.upsert(p);
+    }
+  }
+
+  it("returns 409 when there are no unspent points", async () => {
+    const gid = "api-alloc-empty";
+    seedAtXp(gid, 100);
+    const resp = await fetch(`${base()}/api/profile/allocateSkill`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders(gid) },
+      body: JSON.stringify({ skill: "pace" }),
+    });
+    expect(resp.status).toBe(409);
+  });
+
+  it("spends one banked point on the chosen skill and decrements the bank", async () => {
+    const gid = "api-alloc-ok";
+    seedAtXp(gid, 100);
+    setBank(gid, 2);
+    const before = repo.get(gid)!;
+    expect(before.hero.skills.pace).toBe(3);
+
+    const resp = await fetch(`${base()}/api/profile/allocateSkill`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders(gid) },
+      body: JSON.stringify({ skill: "pace" }),
+    });
+    expect(resp.status).toBe(200);
+    const data = (await resp.json()) as { profile: { hero: PilotProfile; unspentSkillPoints: number } };
+    expect(data.profile.hero.skills.pace).toBe(4);
+    expect(data.profile.unspentSkillPoints).toBe(1);
+
+    const stored = repo.get(gid)!;
+    expect(stored.hero.skills.pace).toBe(4);
+    expect(stored.unspentSkillPoints).toBe(1);
+  });
+});
+
 describe("/api/leaderboard", () => {
   it("is public for anonymous viewers (200, rows, no `me`)", async () => {
     seedAtXp("api-lb-anon", 100);

@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import { ABSOLUTE_SKILL_MAX, clampSkill, divisionForRating, driverRating, levelFromXp, skillSum, type PilotProfile, type SkillKey } from "@f1race/race-engine";
+import { ABSOLUTE_SKILL_MAX, clampSkill, divisionForRating, driverRating, levelFromXp, levelUpPointsAccrued, skillSum, type PilotProfile, type SkillKey } from "@f1race/race-engine";
 import type {
   Division,
   DriverProfile,
@@ -21,6 +21,7 @@ interface ProfileRow {
   freeRespecUsed: number;
   lastRespecAt: number | null;
   tutorialCompleted: number;
+  unspentSkillPoints: number;
   level: number;
   driverRating: number;
   division: string | null;
@@ -86,6 +87,7 @@ function toProfile(r: ProfileRow): DriverProfile {
     freeRespecUsed: r.freeRespecUsed !== 0,
     lastRespecAt: r.lastRespecAt,
     tutorialCompleted: r.tutorialCompleted !== 0,
+    unspentSkillPoints: r.unspentSkillPoints,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
   };
@@ -182,6 +184,9 @@ export class SqliteDriverProfileRepository implements DriverProfileRepository {
     if (!cols.some((c) => c.name === "tutorialCompleted")) {
       this.db.exec("ALTER TABLE profiles ADD COLUMN tutorialCompleted INTEGER NOT NULL DEFAULT 1");
     }
+    if (!cols.some((c) => c.name === "unspentSkillPoints")) {
+      this.db.exec("ALTER TABLE profiles ADD COLUMN unspentSkillPoints INTEGER NOT NULL DEFAULT 0");
+    }
     this.db.exec(
       "CREATE INDEX IF NOT EXISTS idx_profiles_division_rating ON profiles(division, driverRating DESC, totalXp DESC)",
     );
@@ -191,8 +196,8 @@ export class SqliteDriverProfileRepository implements DriverProfileRepository {
 
     this.stmtGet = this.db.prepare("SELECT * FROM profiles WHERE guestId = ?");
     this.stmtUpsert = this.db.prepare(`
-      INSERT INTO profiles (guestId, hero, totalXp, racesCount, heroConfirmed, freeRespecUsed, lastRespecAt, tutorialCompleted, level, driverRating, division, createdAt, updatedAt)
-      VALUES (@guestId, @hero, @totalXp, @racesCount, @heroConfirmed, @freeRespecUsed, @lastRespecAt, @tutorialCompleted, @level, @driverRating, @division, @createdAt, @updatedAt)
+      INSERT INTO profiles (guestId, hero, totalXp, racesCount, heroConfirmed, freeRespecUsed, lastRespecAt, tutorialCompleted, unspentSkillPoints, level, driverRating, division, createdAt, updatedAt)
+      VALUES (@guestId, @hero, @totalXp, @racesCount, @heroConfirmed, @freeRespecUsed, @lastRespecAt, @tutorialCompleted, @unspentSkillPoints, @level, @driverRating, @division, @createdAt, @updatedAt)
       ON CONFLICT(guestId) DO UPDATE SET
         hero = excluded.hero,
         totalXp = excluded.totalXp,
@@ -201,6 +206,7 @@ export class SqliteDriverProfileRepository implements DriverProfileRepository {
         freeRespecUsed = excluded.freeRespecUsed,
         lastRespecAt = excluded.lastRespecAt,
         tutorialCompleted = excluded.tutorialCompleted,
+        unspentSkillPoints = excluded.unspentSkillPoints,
         level = excluded.level,
         driverRating = excluded.driverRating,
         division = excluded.division,
@@ -280,6 +286,7 @@ export class SqliteDriverProfileRepository implements DriverProfileRepository {
       freeRespecUsed: (profile.freeRespecUsed ?? false) ? 1 : 0,
       lastRespecAt: profile.lastRespecAt ?? null,
       tutorialCompleted: (profile.tutorialCompleted ?? true) ? 1 : 0,
+      unspentSkillPoints: profile.unspentSkillPoints ?? 0,
       level,
       driverRating: rating,
       division,
@@ -367,10 +374,27 @@ export class SqliteDriverProfileRepository implements DriverProfileRepository {
   }
 
   markTutorialCompleted(profile: DriverProfile, xpBonus: number): void {
+    const oldXp = profile.totalXp;
     profile.tutorialCompleted = true;
     profile.totalXp += xpBonus;
+    profile.unspentSkillPoints = (profile.unspentSkillPoints ?? 0) + levelUpPointsAccrued(oldXp, profile.totalXp);
     profile.updatedAt = Date.now();
     this.upsert(profile);
+  }
+
+  allocateSkillPoint(profile: DriverProfile, skill: SkillKey): boolean {
+    const banked = profile.unspentSkillPoints ?? 0;
+    if (banked <= 0) return false;
+    const current = profile.hero.skills[skill];
+    if (current >= ABSOLUTE_SKILL_MAX) return false;
+    profile.hero = {
+      ...profile.hero,
+      skills: { ...profile.hero.skills, [skill]: current + 1 },
+    };
+    profile.unspentSkillPoints = banked - 1;
+    profile.updatedAt = Date.now();
+    this.upsert(profile);
+    return true;
   }
 
   close(): void {

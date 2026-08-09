@@ -228,6 +228,17 @@ export function divisionIndex(division: "F4" | "F3" | "F2" | "F1"): number {
   return 0;
 }
 
+// Skill points accrued when totalXp moves from oldTotalXp to newTotalXp: pointsPerLevel per
+// level gained (0 if no level-up, never negative). Called from the race-finish / tutorial-finish
+// paths so leveling up actually rewards spendable skill points (pointsPerLevel was previously
+// defined but unused — the core progression gap).
+export function levelUpPointsAccrued(oldTotalXp: number, newTotalXp: number): number {
+  const oldLevel = levelFromXp(oldTotalXp);
+  const newLevel = levelFromXp(newTotalXp);
+  const gained = Math.max(0, newLevel - oldLevel);
+  return gained * CONFIG.skills.pointsPerLevel;
+}
+
 export function trainingDurationSec(currentSkillLevel: number, driverLevel = 1): number {
   const t = CONFIG.training;
   const discount = Math.min(t.levelDiscountMax, Math.max(0, driverLevel - 1) * t.levelDiscountPerLevel);

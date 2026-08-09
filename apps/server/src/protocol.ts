@@ -82,6 +82,8 @@ export interface DriverProfileSummary {
   // False only for a brand-new confirmed profile that hasn't run the guided first race yet;
   // the client gates the hub's race button on this (tutorial first, then the normal lobby flow).
   tutorialCompleted: boolean;
+  // Banked skill points from level-ups not yet spent. The hub shows a Level-Up modal while > 0.
+  unspentSkillPoints: number;
 }
 
 export type ServerMessage =

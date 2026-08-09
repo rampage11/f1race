@@ -17,6 +17,10 @@ export interface DriverProfile {
   // new confirmed profile means the guided tutorial is still pending and the race entry should
   // route there instead of the normal lobby.
   tutorialCompleted?: boolean;
+  // Skill points banked from level-ups (pointsPerLevel per level gained) but not yet spent.
+  // The hub shows a Level-Up modal while this is > 0; allocateSkillPoint spends them one at a
+  // time. Undefined/0 for legacy rows.
+  unspentSkillPoints?: number;
   createdAt: number;
   updatedAt: number;
 }
@@ -76,4 +80,7 @@ export interface DriverProfileRepository {
   leaderboard(division: Division, limit: number, viewerGuestId?: string): LeaderboardResult;
   // Flip tutorialCompleted=true and award the one-time tutorial XP bonus in one transaction.
   markTutorialCompleted(profile: DriverProfile, xpBonus: number): void;
+  // Spend one banked level-up skill point on `skill` (clamped at the absolute cap). No-op
+  // (returns false) when there are no unspent points or the skill is already maxed.
+  allocateSkillPoint(profile: DriverProfile, skill: SkillKey): boolean;
 }

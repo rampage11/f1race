@@ -7,6 +7,7 @@ import { cancelTraining, fetchTrainingState, startTraining } from "./api";
 import type { TrainingCallResult, TrainingStateDto, TrainingStateResponse } from "./api";
 import { PilotStatsModal } from "./PilotStatsModal";
 import { LeaderboardScreen } from "./LeaderboardScreen";
+import { LevelUpModal } from "./LevelUpModal";
 import styles from "./HubScreen.module.css";
 
 export interface HubScreenProps {
@@ -78,6 +79,7 @@ export function HubScreen({ profile, onRace, onLogout }: HubScreenProps) {
   const [toast, setToast] = useState<string | null>(null);
   const [showStats, setShowStats] = useState<boolean>(false);
   const [showLeaderboard, setShowLeaderboard] = useState<boolean>(false);
+  const [showLevelUp, setShowLevelUp] = useState<boolean>(false);
   const [showMetaTip, setShowMetaTip] = useState<boolean>(false);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tipRef = useRef<HTMLButtonElement>(null);
@@ -109,6 +111,12 @@ export function HubScreen({ profile, onRace, onLogout }: HubScreenProps) {
     if (r) applyResponse(r);
   }, [applyResponse]);
 
+  // Pop the Level-Up modal whenever there are banked skill points (re-opens on the next hub
+  // entry if the player defers by closing the overlay — points persist server-side).
+  useEffect(() => {
+    setShowLevelUp((localProfile.unspentSkillPoints ?? 0) > 0);
+  }, [localProfile.unspentSkillPoints]);
+
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
@@ -116,8 +124,7 @@ export function HubScreen({ profile, onRace, onLogout }: HubScreenProps) {
       if (cancelled || !r) return;
       applyResponse(r);
     };
-    load();
-    const id = setInterval(() => {
+    load();    const id = setInterval(() => {
       if (activeRef.current) load();
     }, 5000);
     return () => {
@@ -312,6 +319,13 @@ export function HubScreen({ profile, onRace, onLogout }: HubScreenProps) {
       )}
       {showLeaderboard && (
         <LeaderboardScreen profile={localProfile} onClose={() => setShowLeaderboard(false)} />
+      )}
+      {showLevelUp && (localProfile.unspentSkillPoints ?? 0) > 0 && (
+        <LevelUpModal
+          profile={localProfile}
+          onAllocated={setLocalProfile}
+          onClose={() => setShowLevelUp(false)}
+        />
       )}
     </div>
   );

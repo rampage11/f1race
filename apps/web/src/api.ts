@@ -121,6 +121,26 @@ export async function cancelTraining(): Promise<TrainingCallResult> {
 
 export type RespecResult = { ok: true; profile: DriverProfileSummary } | { ok: false; error: string };
 
+export async function allocateSkillPoint(skill: SkillKey): Promise<RespecResult> {
+  let res: Response;
+  try {
+    res = await fetch(`${apiBaseUrl()}/api/profile/allocateSkill`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ skill }),
+    });
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+  if (!res.ok) {
+    const data = (await res.json().catch(() => null)) as { error?: string } | null;
+    return { ok: false, error: data?.error ?? `HTTP ${res.status}` };
+  }
+  const data = (await res.json().catch(() => null)) as { profile?: DriverProfileSummary } | null;
+  if (!data?.profile) return { ok: false, error: "invalid response" };
+  return { ok: true, profile: data.profile };
+}
+
 export async function respecSkills(skills: Skills): Promise<RespecResult> {
   let res: Response;
   try {

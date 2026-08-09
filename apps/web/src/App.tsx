@@ -177,9 +177,17 @@ export default function App() {
         <RaceView
           hero={authProfile.hero}
           guestId={guestId}
-          onChangeDriver={() => {
+          onChangeDriver={async () => {
+            // Refresh from /auth/me so the hub reflects level-ups / banked skill points from
+            // the just-finished race (the cached profile would be stale).
+            const fresh = await fetchProfile();
+            if (fresh) {
+              setAuthProfile(fresh);
+              setAuthProfileState(fresh);
+            } else {
+              setAuthProfileState(getAuthProfile());
+            }
             setScreen("hub");
-            setAuthProfileState(getAuthProfile());
           }}
         />
       )}

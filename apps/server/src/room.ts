@@ -9,6 +9,7 @@ import {
   divisionIndex,
   driverRating,
   levelFromXp,
+  levelUpPointsAccrued,
   makeBot,
   makeDriver,
   mulberry32,
@@ -189,6 +190,7 @@ function profileSummary(p: DriverProfile): {
   totalXp: number;
   racesCount: number;
   tutorialCompleted: boolean;
+  unspentSkillPoints: number;
 } {
   const level = levelFromXp(p.totalXp);
   const rating = driverRating(level, skillSum(p.hero.skills));
@@ -202,6 +204,7 @@ function profileSummary(p: DriverProfile): {
     totalXp: p.totalXp,
     racesCount: p.racesCount,
     tutorialCompleted: p.tutorialCompleted ?? true,
+    unspentSkillPoints: p.unspentSkillPoints ?? 0,
   };
 }
 
@@ -911,8 +914,11 @@ export class Room {
         dnf: row.dnf,
         polePosition: row.gridPosition === 1,
       });
+      const oldXp = profile.totalXp;
       profile.totalXp += xpGained;
       profile.racesCount += 1;
+      // Bank spendable skill points for any level(s) gained this race (pointsPerLevel each).
+      profile.unspentSkillPoints = (profile.unspentSkillPoints ?? 0) + levelUpPointsAccrued(oldXp, profile.totalXp);
       profile.updatedAt = Date.now();
       this.repository.recordRaceFinish(profile, {
         profileId: profile.guestId,
