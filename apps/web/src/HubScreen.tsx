@@ -293,7 +293,13 @@ export function HubScreen({ profile, onRace, onLogout }: HubScreenProps) {
           );
         })}
       </div>
-      {showStats && <PilotStatsModal profile={localProfile} onClose={() => setShowStats(false)} />}
+      {showStats && (
+        <PilotStatsModal
+          profile={localProfile}
+          onClose={() => setShowStats(false)}
+          onProfileChanged={setLocalProfile}
+        />
+      )}
     </div>
   );
 }

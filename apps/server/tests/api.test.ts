@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mkdtempSync, rmSync } from "node:fs";
-import type { PilotProfile } from "@f1race/race-engine";
+import type { PilotProfile, Skills } from "@f1race/race-engine";
 import { signSession } from "../src/auth/session.js";
 import { createRepository, type DriverProfileRepository } from "../src/persistence/index.js";
 import type { ServerHandle } from "../src/server.js";
@@ -285,5 +285,91 @@ describe("/api/training/state: lazy completion of an elapsed training", () => {
     expect(stored).not.toBeNull();
     expect(stored!.hero.skills.pace).toBe(4);
     expect(repo.getActiveTraining(gid)).toBeNull();
+  });
+});
+
+describe("/api/profile/respec", () => {
+  // totalXp >= 1703 → level 5 (cumulative xpToNext: 100+283+520+800).
+  const LEVEL5_XP = 1800;
+  const RESPECED: Skills = { fitness: 3, reaction: 1, attack: 2, defense: 2, pace: 1, tyreMgmt: 1 };
+
+  function seedAt(guestId: string, totalXp: number, confirmed = true): void {
+    const now = Date.now();
+    repo.upsert({
+      guestId,
+      hero: HERO_VALID,
+      totalXp,
+      racesCount: 0,
+      heroConfirmed: confirmed,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+
+  it("returns 401 with no bearer token", async () => {
+    const resp = await fetch(`${base()}/api/profile/respec`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ skills: RESPECED }),
+    });
+    expect(resp.status).toBe(401);
+  });
+
+  it("returns 403 for an unconfirmed profile", async () => {
+    seedAt("api-respec-unconf", LEVEL5_XP, false);
+    const resp = await fetch(`${base()}/api/profile/respec`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders("api-respec-unconf") },
+      body: JSON.stringify({ skills: RESPECED }),
+    });
+    expect(resp.status).toBe(403);
+  });
+
+  it("is locked below respec.freeLevel (level < 5 → 409 unlock message)", async () => {
+    seedAt("api-respec-lowlevel", 100);
+    const resp = await fetch(`${base()}/api/profile/respec`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders("api-respec-lowlevel") },
+      body: JSON.stringify({ skills: RESPECED }),
+    });
+    expect(resp.status).toBe(409);
+    const data = (await resp.json()) as { error: string };
+    expect(data.error).toMatch(/unlocks at level 5/);
+  });
+
+  it("rejects a non-point-neutral allocation (sum != current) with 400", async () => {
+    seedAt("api-respec-alloc", LEVEL5_XP);
+    const resp = await fetch(`${base()}/api/profile/respec`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders("api-respec-alloc") },
+      body: JSON.stringify({ skills: { fitness: 5, reaction: 5, attack: 5, defense: 5, pace: 5, tyreMgmt: 5 } }),
+    });
+    expect(resp.status).toBe(400);
+  });
+
+  it("grants one free respec at level 5, then gates the next by the cooldown (409)", async () => {
+    const gid = "api-respec-free";
+    seedAt(gid, LEVEL5_XP);
+    const ok = await fetch(`${base()}/api/profile/respec`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders(gid) },
+      body: JSON.stringify({ skills: RESPECED }),
+    });
+    expect(ok.status).toBe(200);
+    const data = (await ok.json()) as { profile: { hero: PilotProfile } };
+    expect(data.profile.hero.skills).toEqual(RESPECED);
+
+    const stored = repo.get(gid)!;
+    expect(stored.freeRespecUsed).toBe(true);
+    expect(stored.lastRespecAt).not.toBeNull();
+
+    const again = await fetch(`${base()}/api/profile/respec`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders(gid) },
+      body: JSON.stringify({ skills: HERO_VALID.skills }),
+    });
+    expect(again.status).toBe(409);
+    const againData = (await again.json()) as { error: string };
+    expect(againData.error).toMatch(/available in/);
   });
 });

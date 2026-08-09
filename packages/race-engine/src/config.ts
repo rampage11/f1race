@@ -239,6 +239,14 @@ export const CONFIG = {
     eliteCount: 3,
     eliteMultiplier: 1.15,
   },
+
+  // Skill respec: one free redistribution once the pilot reaches freeLevel (no currency yet);
+  // afterwards a cooldownDays gate. Respec is point-neutral (the total skill sum is preserved,
+  // only the distribution changes) so it can't be farmed for free points.
+  respec: {
+    freeLevel: 5,
+    cooldownDays: 30,
+  },
 } as const;
 
 export type TyreCompoundConfig = (typeof CONFIG.tyres)[TyreCompound];

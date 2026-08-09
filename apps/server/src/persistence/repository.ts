@@ -8,6 +8,11 @@ export interface DriverProfile {
   // First-login gate: false for a brand-new Yandex user (forced through SetupScreen).
   // True once the user explicitly confirms their pilot, and for any pre-existing/guest profile.
   heroConfirmed: boolean;
+  // Skill respec gating (optional — older rows / in-memory construction default to "unused").
+  // freeRespecUsed flips to true after the one free respec at level respec.freeLevel; lastRespecAt
+  // timestamps the most recent respec for the cooldownDays gate.
+  freeRespecUsed?: boolean;
+  lastRespecAt?: number | null;
   createdAt: number;
   updatedAt: number;
 }

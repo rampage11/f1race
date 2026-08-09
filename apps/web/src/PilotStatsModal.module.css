@@ -280,6 +280,106 @@
 }
 .trainBtn:hover { background: #00eb78; }
 
+/* ---------- Respec mode ---------- */
+.respecCounter {
+  margin-left: 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0.02em;
+  color: var(--accent-orange);
+}
+.respecCounter strong { color: inherit; font-weight: 700; }
+.respecCounter .ok { color: var(--accent-green); }
+
+.respecBtn {
+  margin-top: 12px;
+  width: 100%;
+  padding: 10px;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--accent-orange);
+  background: rgba(255, 159, 10, 0.1);
+  border: 1px solid rgba(255, 159, 10, 0.4);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background 0.15s var(--ease-standard), border-color 0.15s;
+}
+.respecBtn:hover { background: rgba(255, 159, 10, 0.2); border-color: var(--accent-orange); }
+
+.editCtrl {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.editBtn {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  font-size: 18px;
+  line-height: 1;
+  font-weight: 700;
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-active);
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background 0.12s var(--ease-standard), transform 0.1s;
+}
+.editBtn:hover:not(:disabled) { background: #232336; transform: scale(1.06); }
+.editBtn:disabled { opacity: 0.35; cursor: not-allowed; }
+.editTrack {
+  flex: 1 1 auto;
+  height: 8px;
+  background: #1e293b;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.respecActions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+}
+.respecSubmit {
+  flex: 1 1 auto;
+  padding: 11px;
+  font-size: 14px;
+}
+.respecSubmit:disabled { opacity: 0.45; cursor: not-allowed; }
+.respecCancel {
+  flex: 0 0 auto;
+  padding: 11px 16px;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border-active);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+.respecCancel:hover:not(:disabled) { color: var(--text-primary); }
+.respecError {
+  flex: 1 1 100%;
+  margin: 0 0 6px;
+  padding: 7px 10px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--accent-red);
+  background: rgba(255, 45, 85, 0.12);
+  border: 1px solid rgba(255, 45, 85, 0.35);
+  border-radius: 6px;
+}
+
 @media (max-width: 480px) {
   .modal { padding: 18px 16px 14px; }
   .name { font-size: 22px; }

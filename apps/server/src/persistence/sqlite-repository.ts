@@ -15,6 +15,8 @@ interface ProfileRow {
   totalXp: number;
   racesCount: number;
   heroConfirmed: number;
+  freeRespecUsed: number;
+  lastRespecAt: number | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -46,6 +48,8 @@ function toProfile(r: ProfileRow): DriverProfile {
     totalXp: r.totalXp,
     racesCount: r.racesCount,
     heroConfirmed: r.heroConfirmed !== 0,
+    freeRespecUsed: r.freeRespecUsed !== 0,
+    lastRespecAt: r.lastRespecAt,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
   };
@@ -120,19 +124,27 @@ export class SqliteDriverProfileRepository implements DriverProfileRepository {
     if (!cols.some((c) => c.name === "heroConfirmed")) {
       this.db.exec("ALTER TABLE profiles ADD COLUMN heroConfirmed INTEGER NOT NULL DEFAULT 1");
     }
+    if (!cols.some((c) => c.name === "freeRespecUsed")) {
+      this.db.exec("ALTER TABLE profiles ADD COLUMN freeRespecUsed INTEGER NOT NULL DEFAULT 0");
+    }
+    if (!cols.some((c) => c.name === "lastRespecAt")) {
+      this.db.exec("ALTER TABLE profiles ADD COLUMN lastRespecAt INTEGER");
+    }
     this.db.exec(
       "CREATE INDEX IF NOT EXISTS idx_trainings_profile ON trainings(profileId, completedAt)",
     );
 
     this.stmtGet = this.db.prepare("SELECT * FROM profiles WHERE guestId = ?");
     this.stmtUpsert = this.db.prepare(`
-      INSERT INTO profiles (guestId, hero, totalXp, racesCount, heroConfirmed, createdAt, updatedAt)
-      VALUES (@guestId, @hero, @totalXp, @racesCount, @heroConfirmed, @createdAt, @updatedAt)
+      INSERT INTO profiles (guestId, hero, totalXp, racesCount, heroConfirmed, freeRespecUsed, lastRespecAt, createdAt, updatedAt)
+      VALUES (@guestId, @hero, @totalXp, @racesCount, @heroConfirmed, @freeRespecUsed, @lastRespecAt, @createdAt, @updatedAt)
       ON CONFLICT(guestId) DO UPDATE SET
         hero = excluded.hero,
         totalXp = excluded.totalXp,
         racesCount = excluded.racesCount,
         heroConfirmed = excluded.heroConfirmed,
+        freeRespecUsed = excluded.freeRespecUsed,
+        lastRespecAt = excluded.lastRespecAt,
         updatedAt = excluded.updatedAt
     `);
     this.stmtAddRace = this.db.prepare(`
@@ -187,6 +199,8 @@ export class SqliteDriverProfileRepository implements DriverProfileRepository {
       totalXp: profile.totalXp,
       racesCount: profile.racesCount,
       heroConfirmed: profile.heroConfirmed ? 1 : 0,
+      freeRespecUsed: (profile.freeRespecUsed ?? false) ? 1 : 0,
+      lastRespecAt: profile.lastRespecAt ?? null,
       createdAt: profile.createdAt,
       updatedAt: profile.updatedAt,
     };

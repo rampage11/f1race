@@ -1,4 +1,4 @@
-import type { PilotProfile, SkillKey } from "@f1race/race-engine";
+import type { PilotProfile, SkillKey, Skills } from "@f1race/race-engine";
 import { apiBaseUrl, getAuthToken } from "./identity";
 import type { DriverProfileSummary } from "./identity";
 
@@ -117,4 +117,26 @@ export async function cancelTraining(): Promise<TrainingCallResult> {
     return { error: data?.error ?? `HTTP ${res.status}` };
   }
   return (await res.json()) as TrainingStateResponse;
+}
+
+export type RespecResult = { ok: true; profile: DriverProfileSummary } | { ok: false; error: string };
+
+export async function respecSkills(skills: Skills): Promise<RespecResult> {
+  let res: Response;
+  try {
+    res = await fetch(`${apiBaseUrl()}/api/profile/respec`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ skills }),
+    });
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+  if (!res.ok) {
+    const data = (await res.json().catch(() => null)) as { error?: string } | null;
+    return { ok: false, error: data?.error ?? `HTTP ${res.status}` };
+  }
+  const data = (await res.json().catch(() => null)) as { profile?: DriverProfileSummary } | null;
+  if (!data?.profile) return { ok: false, error: "invalid response" };
+  return { ok: true, profile: data.profile };
 }

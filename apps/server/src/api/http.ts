@@ -1,12 +1,16 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import {
   ABSOLUTE_SKILL_MAX,
+  CONFIG,
   SKILL_KEYS,
   levelFromXp,
+  skillSum,
   trainingDurationSec,
+  validateRespecAllocation,
   validateStartingAllocation,
   type PilotProfile,
   type SkillKey,
+  type Skills,
 } from "@f1race/race-engine";
 import { verifySessionToken } from "../auth/session.js";
 import { profileSummaryFrom } from "../auth/yandex.js";
@@ -135,6 +139,58 @@ export async function handleApiRequest(
     return true;
   }
 
+  // POST /api/profile/respec — point-neutral skill redistribution. One free respec at level
+  // respec.freeLevel, then a cooldownDays gate (no currency yet). Only `skills` is updated;
+  // name/team/country/tyres are preserved. The new allocation must total the pilot's CURRENT
+  // skill sum so respec can't be farmed for free points.
+  if (method === "POST" && path === "/api/profile/respec") {
+    const profile = requireProfile(req, env);
+    if (!profile) return sendJson401(res, env), true;
+    if (!profile.heroConfirmed) {
+      sendJson(res, 403, { error: "confirm your pilot first" }, env.allowedOrigin);
+      return true;
+    }
+    const body = await readJsonBody(req);
+    if (!body || typeof body !== "object") {
+      sendJson(res, 400, { error: "invalid request body" }, env.allowedOrigin);
+      return true;
+    }
+    const skills = (body as { skills?: unknown }).skills;
+    if (!isValidSkills(skills)) {
+      sendJson(res, 400, { error: "invalid skills" }, env.allowedOrigin);
+      return true;
+    }
+    const currentSum = skillSum(profile.hero.skills);
+    const alloc = validateRespecAllocation(skills, currentSum);
+    if (!alloc.ok) {
+      sendJson(res, 400, { error: alloc.errors.join("; ") }, env.allowedOrigin);
+      return true;
+    }
+    const now = Date.now();
+    const level = levelFromXp(profile.totalXp);
+    const freeAvailable = !(profile.freeRespecUsed ?? false) && level >= CONFIG.respec.freeLevel;
+    const last = profile.lastRespecAt ?? null;
+    if (!freeAvailable) {
+      if (last === null) {
+        sendJson(res, 409, { error: `respec unlocks at level ${CONFIG.respec.freeLevel}` }, env.allowedOrigin);
+        return true;
+      }
+      const cooldownMs = CONFIG.respec.cooldownDays * 86_400_000;
+      if (now - last < cooldownMs) {
+        const daysLeft = Math.ceil((cooldownMs - (now - last)) / 86_400_000);
+        sendJson(res, 409, { error: `respec available in ${daysLeft} day(s)` }, env.allowedOrigin);
+        return true;
+      }
+    }
+    profile.hero = { ...profile.hero, skills };
+    if (freeAvailable) profile.freeRespecUsed = true;
+    profile.lastRespecAt = now;
+    profile.updatedAt = now;
+    env.repository.upsert(profile);
+    sendJson(res, 200, buildResponse(env, profile, env.repository.getActiveTraining(profile.guestId), now), env.allowedOrigin);
+    return true;
+  }
+
   if ((method === "GET" || method === "POST") && path.startsWith("/api/training")) {
     const profile = requireProfile(req, env);
     if (!profile) return sendJson401(res, env), true;
@@ -197,6 +253,15 @@ export async function handleApiRequest(
 
 function sendJson401(res: ServerResponse, env: ApiEnv): void {
   sendJson(res, 401, { error: "missing or invalid bearer token" }, env.allowedOrigin);
+}
+
+function isValidSkills(v: unknown): v is Skills {
+  if (!v || typeof v !== "object") return false;
+  const s = v as Record<string, unknown>;
+  for (const k of SKILL_KEYS) {
+    if (typeof s[k] !== "number" || !Number.isFinite(s[k] as number)) return false;
+  }
+  return true;
 }
 
 function isValidHero(v: unknown): v is PilotProfile {

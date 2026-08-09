@@ -29,6 +29,24 @@ export function validateStartingAllocation(s: Skills): SkillAllocationResult {
   return { ok: errors.length === 0, errors };
 }
 
+// Respec validation: the new allocation must total exactly `expectedTotal` (point-neutral —
+// no gaining or losing points) and each skill is within the absolute cap. Used by the
+// /api/profile/respec endpoint; `expectedTotal` is the pilot's current skill sum.
+export function validateRespecAllocation(s: Skills, expectedTotal: number): SkillAllocationResult {
+  const errors: string[] = [];
+  const total = totalPoints(s);
+  if (total !== expectedTotal) {
+    errors.push(`Expected exactly ${expectedTotal} points, got ${total}`);
+  }
+  for (const k of SKILL_KEYS) {
+    const v = s[k];
+    if (!Number.isInteger(v)) errors.push(`${k} must be an integer`);
+    if (v < 0) errors.push(`${k} cannot be negative`);
+    if (v > CONFIG.skills.absoluteMax) errors.push(`${k} exceeds cap ${CONFIG.skills.absoluteMax}`);
+  }
+  return { ok: errors.length === 0, errors };
+}
+
 export function clampSkill(value: number): number {
   return Math.max(0, Math.min(CONFIG.skills.absoluteMax, Math.round(value)));
 }
