@@ -31,6 +31,7 @@ export interface MakeDriverArgs {
   paceFactor?: number;
   launchFactor?: number;
   id?: string;
+  skillBudget?: number;
 }
 
 const clampPaceFactor = (v: number) => Math.max(0.975, Math.min(1.025, v));
@@ -82,9 +83,10 @@ export function randomRng(): Rng {
 }
 
 export function makeBot(args: Partial<MakeDriverArgs>, rng: Rng): Driver {
-  const extraPoints = Math.round(rng.range(0, 5));
+  const baseBudget = args.skillBudget ?? STARTING_SKILL_POINTS;
+  const jitter = Math.round(rng.range(0, CONFIG.bots.jitterMax));
   const skills: Skills = { ...emptySkills() };
-  let remaining = STARTING_SKILL_POINTS + extraPoints;
+  let remaining = baseBudget + jitter;
   while (remaining > 0) {
     const k = rng.pick(SKILL_KEYS);
     if (skills[k] < CONFIG.skills.absoluteMax) {

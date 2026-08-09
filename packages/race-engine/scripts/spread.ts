@@ -23,17 +23,20 @@ for (const seed of seeds) {
   const grid = gridOf(field(seed), seed);
   const cfg = buildRaceConfig({ track: redBullRing(), drivers: grid, totalLaps: 12, seed: seed * 13 + 5, dt: 0.1 });
   const result = new RaceEngine(cfg).run();
-  const times = result.rows.map((r) => r.raceTime).sort((a, b) => a - b);
-  const total = times[times.length - 1]! - times[0]!;
+  const classified = result.rows.filter((r) => !r.dnf && Number.isFinite(r.raceTime));
+  const dnfCount = result.rows.length - classified.length;
+  const times = classified.map((r) => r.raceTime).sort((a, b) => a - b);
+  const total = times.length >= 2 ? times[times.length - 1]! - times[0]! : 0;
   const gaps: number[] = [];
   for (let i = 1; i < times.length; i++) gaps.push(times[i]! - times[i - 1]!);
   gaps.sort((a, b) => a - b);
-  const median = gaps[Math.floor(gaps.length / 2)]!;
-  const max = gaps[gaps.length - 1]!;
+  const median = gaps.length ? gaps[Math.floor(gaps.length / 2)]! : 0;
+  const max = gaps.length ? gaps[gaps.length - 1]! : 0;
   sumSpread += total;
   sumNeighborAvg += median;
   count++;
-  console.log(`seed ${seed}: P1→P20 = ${total.toFixed(1)}s | median neighbor ${median.toFixed(2)}s | max neighbor ${max.toFixed(1)}s`);
+  const dnfTag = dnfCount ? ` | ${dnfCount} DNF` : "";
+  console.log(`seed ${seed}: P1→P${classified.length} = ${total.toFixed(1)}s | median neighbor ${median.toFixed(2)}s | max neighbor ${max.toFixed(1)}s${dnfTag}`);
   if (seed === 1) {
     console.log("  finish times:", times.map((t) => t.toFixed(1)).join(" "));
     const sortedGrid = grid;

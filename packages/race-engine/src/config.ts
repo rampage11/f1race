@@ -141,13 +141,14 @@ export const CONFIG = {
   xp: {
     basePerRace: 40,
     perPlaceAheadOfLast: 6,
-    fastestLapBonus: 15,
-    positionsGainedBonus: 4,
+    fastestLapBonus: 25,
+    positionsGainedBonus: 2,
     dnfXp: 10,
     formulaF4: { levelMin: 1, levelMax: 9, gridSize: 20, lapScale: 0.8 },
     formulaF3: { levelMin: 10, levelMax: 19, gridSize: 20, lapScale: 0.9 },
     formulaF2: { levelMin: 20, levelMax: 34, gridSize: 20, lapScale: 1.0 },
     formulaF1: { levelMin: 35, levelMax: 999, gridSize: 20, lapScale: 1.0 },
+    polePositionBonus: 20,
   },
 
   level: {
@@ -177,7 +178,7 @@ export const CONFIG = {
 
   HAMMER_TIME: {
     durationSec: 15,
-    cooldownSec: 15,
+    cooldownSec: 45,
     corneringMultiplier: 1.15,
     overtakeMultiplier: 1.25,
     defenseMultiplier: 0.8,
@@ -203,7 +204,7 @@ export const CONFIG = {
       intermediate: { dry: 1.5, lightRain: 0.7, heavyRain: 0.6 },
       wet:      { dry: 2.0, lightRain: 0.6, heavyRain: 0.5 },
     },
-    probability: { dry: 0.60, lightRain: 0.25, heavyRain: 0.10, variable: 0.05 },
+    probability: { dry: 0.50, lightRain: 0.25, heavyRain: 0.10, variable: 0.15 },
   },
 
   timeOfDay: {
@@ -214,6 +215,26 @@ export const CONFIG = {
     gapSec: 2.0,
     paceBonusSec: 0.25,
     minOvertakingScore: 0.3,
+  },
+
+  // Random mechanical DNF for drama. basePerLap is the per-lap failure probability; rolled
+  // (with a dedicated RNG stream so the physics RNG is untouched) once per lap completion for
+  // every car past minLap. Effective per-race chance for a ~12-lap race ≈ 0.5% per car.
+  mechanicalFailure: {
+    basePerLap: 0.0005,
+    minLap: 2,
+  },
+
+  // Bot skill budget scales with the room's division so higher divisions field competitive
+  // bots (otherwise veterans farm static starter bots). budget = budgetBase + divisionRatingFloor ×
+  // budgetCoefficient, then +rand(0..jitterMax). The top `eliteCount` bots get ×eliteMultiplier
+  // to create "bosses" slightly above the lobby average.
+  bots: {
+    budgetBase: 10,
+    budgetCoefficient: 0.8,
+    jitterMax: 5,
+    eliteCount: 3,
+    eliteMultiplier: 1.15,
   },
 } as const;
 

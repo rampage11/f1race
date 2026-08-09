@@ -168,12 +168,14 @@ export function xpForRace(args: {
   fastestLap: boolean;
   positionsGained: number;
   dnf: boolean;
+  polePosition?: boolean;
 }): number {
   const x = CONFIG.xp;
   if (args.dnf) return x.dnfXp;
   const placesAheadOfLast = Math.max(0, args.gridSize - args.place);
   let xp = x.basePerRace + placesAheadOfLast * x.perPlaceAheadOfLast;
   if (args.fastestLap) xp += x.fastestLapBonus;
+  if (args.polePosition) xp += x.polePositionBonus;
   xp += args.positionsGained * x.positionsGainedBonus;
   return xp;
 }
@@ -217,6 +219,23 @@ export function divisionForRating(rating: number): "F4" | "F3" | "F2" | "F1" {
   if (rating >= r.f2RatingMin) return "F2";
   if (rating >= r.f3RatingMin) return "F3";
   return "F4";
+}
+
+// Lower rating bound of a division (F4 floor = 0). Used to scale bot skill budgets so a
+// room's bots match the division's expected driver strength.
+export function divisionRatingFloor(division: "F4" | "F3" | "F2" | "F1"): number {
+  const r = CONFIG.driverRating;
+  if (division === "F1") return r.f1RatingMin;
+  if (division === "F2") return r.f2RatingMin;
+  if (division === "F3") return r.f3RatingMin;
+  return 0;
+}
+
+// Base skill-point budget for a bot filling a room in the given division (before jitter and
+// elite bump): budgetBase + divisionRatingFloor × budgetCoefficient.
+export function botSkillBudgetForDivision(division: "F4" | "F3" | "F2" | "F1"): number {
+  const b = CONFIG.bots;
+  return b.budgetBase + divisionRatingFloor(division) * b.budgetCoefficient;
 }
 
 export function trainingDurationSec(currentSkillLevel: number, driverLevel = 1): number {

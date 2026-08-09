@@ -56,6 +56,7 @@ export class RaceEngine {
   private readonly pitRequests = new Map<string, TyreCompound>();
   private readonly weather: Weather;
   private readonly timeOfDay: TimeOfDay;
+  private readonly failureRng: Rng;
 
   constructor(config: RaceConfig, opts: EngineOptions = {}) {
     this.config = config;
@@ -66,6 +67,7 @@ export class RaceEngine {
     this.dt = opts.dt ?? config.dt ?? CONFIG.physics.dtDefault;
     this.weather = opts.weather ?? config.weather ?? "dry";
     this.timeOfDay = opts.timeOfDay ?? config.timeOfDay ?? "day";
+    this.failureRng = mulberry32((config.seed ^ 0x4d454348) >>> 0);
     this.cars = this.buildCars();
     this.phase = "racing";
     this.pushEvent({ t: 0, type: "race_start" });
@@ -300,6 +302,11 @@ export class RaceEngine {
         const wear = wearDeltaForLap(car.tyre, this.lapLengthKm, driver.skills.tyreMgmt, this.effectiveWeather) * wearMult;
         car.tyre.wear = Math.min(1, car.tyre.wear + wear);
         car.hammerActiveSecThisLap = 0;
+        if (completingLap >= CONFIG.mechanicalFailure.minLap && this.failureRng.bool(CONFIG.mechanicalFailure.basePerLap)) {
+          car.dnf = true;
+          this.pushEvent({ t: this.time, type: "info", message: `${this.driverOf(car).name}: сход (механика)` });
+          return;
+        }
         if (car.lap >= this.config.totalLaps) {
           this.finishCar(car);
           return;

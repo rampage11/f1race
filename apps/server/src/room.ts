@@ -5,6 +5,7 @@ import {
   RaceEngine,
   buildQualyConfig,
   buildRaceConfig,
+  botSkillBudgetForDivision,
   divisionForRating,
   driverRating,
   levelFromXp,
@@ -618,11 +619,34 @@ export class Room {
     for (const conn of this.connections.values()) {
       drivers.push(this.makeHumanDriver(conn.hero, conn.driverId));
     }
+    const division = this.botDivision();
+    const baseBudget = botSkillBudgetForDivision(division);
+    const eliteCount = Math.min(CONFIG.bots.eliteCount, FIELD_SIZE - drivers.length);
+    let botIndex = 0;
     while (drivers.length < FIELD_SIZE) {
       const startingTyre = compoundForWeather(this.weather, rng);
-      drivers.push(makeBot({ startingTyre }, rng));
+      const elite = botIndex < eliteCount;
+      const budget = elite
+        ? Math.round(baseBudget * CONFIG.bots.eliteMultiplier)
+        : baseBudget;
+      drivers.push(makeBot({ startingTyre, skillBudget: budget }, rng));
+      botIndex++;
     }
     this.drivers = drivers;
+  }
+
+  // The division used to scale bot strength: take the strongest division among connected
+  // humans (so a veteran lifting a rookie room still gets challenged); F4 when nobody has a
+  // persisted profile (ephemeral solo). Matchmaking normally keeps a room single-division.
+  private botDivision(): "F4" | "F3" | "F2" | "F1" {
+    const rank = { F4: 0, F3: 1, F2: 2, F1: 3 } as const;
+    let best: "F4" | "F3" | "F2" | "F1" = "F4";
+    for (const conn of this.connections.values()) {
+      if (!conn.savedProfile) continue;
+      const d = divisionForRating(driverRating(levelFromXp(conn.savedProfile.totalXp), skillSum(conn.savedProfile.hero.skills)));
+      if (rank[d] > rank[best]) best = d;
+    }
+    return best;
   }
 
   private makeHumanDriver(profile: PilotProfile, driverId: string): Driver {
@@ -876,6 +900,7 @@ export class Room {
         fastestLap: row.fastestLap,
         positionsGained: row.positionsGained,
         dnf: row.dnf,
+        polePosition: row.gridPosition === 1,
       });
       profile.totalXp += xpGained;
       profile.racesCount += 1;
