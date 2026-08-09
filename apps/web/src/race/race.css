@@ -5,10 +5,59 @@
    ============================================================ */
 
 /* ---------- Hammer Time button ---------- */
-.hammer-btn {
+.hammer-wrap {
   position: fixed;
   right: 24px;
   bottom: 240px;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+.hammer-modes {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: stretch;
+  width: 96px;
+}
+.hammer-mode-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--mode-color, var(--accent-green)) 50%, transparent);
+  background: color-mix(in srgb, var(--mode-color, var(--accent-green)) 14%, var(--bg-elevated));
+  color: #fff;
+  cursor: pointer;
+  transition: transform 0.12s var(--ease-standard), background 0.15s, border-color 0.15s;
+}
+.hammer-mode-btn:hover {
+  transform: translateX(-3px);
+  background: color-mix(in srgb, var(--mode-color, var(--accent-green)) 26%, var(--bg-elevated));
+  border-color: var(--mode-color, var(--accent-green));
+}
+.hammer-mode-btn .hammer-mode-short {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--mode-color, var(--accent-green));
+  color: #0a0a0f;
+  font-weight: 700;
+  font-size: 11px;
+  flex: 0 0 auto;
+}
+.hammer-mode-btn .hammer-mode-label {
+  font-size: 12px;
+  letter-spacing: 0.02em;
+}
+.hammer-btn {
+  position: relative;
   width: 80px;
   height: 80px;
   border-radius: 50%;
@@ -18,8 +67,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 40;
   transition: transform 0.15s var(--ease-standard), opacity 0.2s;
+  margin-left: auto;
 }
 .hammer-btn:disabled { cursor: not-allowed; }
 .hammer-btn .hammer-ring {
@@ -40,12 +89,21 @@
 }
 .hammer-btn .hammer-count {
   position: absolute;
-  bottom: 12px;
+  bottom: 10px;
   left: 50%;
   transform: translateX(-50%);
   font-size: 13px;
   color: #fff;
   text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+  pointer-events: none;
+}
+.hammer-btn .hammer-mode-badge {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 11px;
+  font-weight: 700;
   pointer-events: none;
 }
 .hammer-available {
@@ -54,8 +112,8 @@
 }
 .hammer-available:hover { transform: scale(1.06); }
 .hammer-active {
-  background: var(--accent-red);
-  box-shadow: 0 0 28px rgba(255, 45, 85, 0.6);
+  background: var(--bg-elevated);
+  box-shadow: 0 0 28px color-mix(in srgb, var(--hammer-color, var(--accent-red)) 55%, transparent);
 }
 .hammer-cooldown {
   background: var(--bg-elevated);

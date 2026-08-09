@@ -10,6 +10,8 @@ export type Skills = Record<SkillKey, number>;
 
 export type TyreCompound = "soft" | "medium" | "hard" | "intermediate" | "wet";
 
+export type HammerMode = "attack" | "defend" | "push";
+
 export type Weather = "dry" | "lightRain" | "heavyRain" | "variable";
 
 export type TimeOfDay = "day" | "sunset" | "night";
@@ -89,6 +91,7 @@ export interface CarState {
   hammerActiveUntil: number;
   hammerReadyAt: number;
   hammerActiveSecThisLap: number;
+  hammerMode: HammerMode | null;
   drsActiveUntil: number;
   tow: boolean;
   launchMult: number;
@@ -184,6 +187,7 @@ export interface PilotProfile {
 
 export interface HammerTimeSnapshot {
   active: boolean;
+  mode: HammerMode | null;
   remainingSec: number;
   cooldownSec: number;
   readyAt: number;

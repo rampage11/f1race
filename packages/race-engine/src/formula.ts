@@ -1,6 +1,6 @@
 import { CONFIG } from "./config.js";
 import { compoundPaceBonusSec, gripFor, tyrePacePenaltySec } from "./tyres.js";
-import type { Skills, Track, TyreState, Weather } from "./types.js";
+import type { HammerMode, Skills, Track, TyreState, Weather } from "./types.js";
 
 export function baseLapTime(track: Track): number {
   const raw = track.segments.reduce((t, seg) => t + seg.length / seg.targetSpeed, 0);
@@ -54,8 +54,8 @@ export interface BattleInputs {
   lapDelta: number;
   weather?: Weather;
   attackerDrsActive?: boolean;
-  attackerHammerActive?: boolean;
-  defenderHammerActive?: boolean;
+  attackerHammerMode?: HammerMode | null;
+  defenderHammerMode?: HammerMode | null;
 }
 
 function effectiveWeatherOf(w: Weather | undefined): "dry" | "lightRain" | "heavyRain" {
@@ -69,7 +69,7 @@ export function passProbability(input: BattleInputs): number {
   const tyreTerm = input.tyreAdvantage * b.tyreAdvantageWeight;
   const w = effectiveWeatherOf(input.weather);
   const weatherMult = CONFIG.weather.overtakeMultiplier[w];
-  const hammerAtk = input.attackerHammerActive ? CONFIG.HAMMER_TIME.overtakeMultiplier : 1;
+  const hammerAtk = input.attackerHammerMode ? CONFIG.HAMMER_TIME.mode[input.attackerHammerMode].overtake : 1;
   const drsMult = input.attackerDrsActive ? CONFIG.battle.drsPassMultiplier : 1;
   const comboMult = weatherMult * hammerAtk * drsMult;
 
@@ -80,8 +80,8 @@ export function passProbability(input: BattleInputs): number {
     p *= comboMult;
     return Math.max(bf.lappedProbFloor, Math.min(b.probCeil, p));
   }
-  const effDefense = input.defenderHammerActive
-    ? input.defenseSkill * CONFIG.HAMMER_TIME.defenseMultiplier
+  const effDefense = input.defenderHammerMode
+    ? input.defenseSkill * CONFIG.HAMMER_TIME.mode[input.defenderHammerMode].defense
     : input.defenseSkill;
   const adTerm = (input.attackSkill - effDefense) * b.attackDefenseWeight;
   const trainTerm = input.trainSize * b.trainSizeWeight;

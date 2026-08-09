@@ -266,7 +266,7 @@ function handle(
       applyOrError(ws, conn.room?.cancelPit(conn.connectionId) ?? null);
       break;
     case "hammerTime":
-      applyOrError(ws, conn.room?.requestHammer(conn.connectionId) ?? null);
+      applyOrError(ws, conn.room?.requestHammer(conn.connectionId, msg.mode) ?? null);
       break;
     case "setStartingTyre":
       applyOrError(ws, conn.room?.requestSetStartingTyre(conn.connectionId, msg.compound) ?? null);

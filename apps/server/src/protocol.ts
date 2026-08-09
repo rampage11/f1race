@@ -1,4 +1,5 @@
 import type {
+  HammerMode,
   PilotProfile,
   QualySnapshot,
   RaceResult,
@@ -45,8 +46,10 @@ export type ClientMessage =
   // `sequenceId` disambiguates which sequence the click targets (ignored if stale).
   | { type: "startReaction"; clientTimestamp: number; sequenceId: number }
   // Activate "hammer time" boost for the connection's hero car during the race stage.
-  // Engine cooldown is the real gate; a small per-connection rate limit guards spam.
-  | { type: "hammerTime" }
+  // `mode` selects one of three strategic profiles (attack/defend/push); the engine applies
+  // the mode's multipliers while the boost window is open. Engine cooldown is the real gate;
+  // a small per-connection rate limit guards spam.
+  | { type: "hammerTime"; mode: HammerMode }
   // Pre-qualifying tyre pick: the player's INTENT for their hero's race starting compound.
   // Sent during the `qualy`/`startSequence` stages; the server applies it when building the
   // race grid (authoritative — the client never sets its own race start locally).

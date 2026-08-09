@@ -7,6 +7,7 @@ import {
   makeBot,
   makeDriver,
   mulberry32,
+  passProbability,
   redBullRing,
   trackLengthM,
 } from "../src/index.js";
@@ -212,6 +213,47 @@ describe("Hammer Time modifiers", () => {
     const baseWearDelta = b.tyre.wear - 0.3;
     const boostWearDelta = f.tyre.wear - 0.3;
     expect(boostWearDelta).toBeGreaterThan(baseWearDelta);
-    expect(boostWearDelta).toBeCloseTo(baseWearDelta * CONFIG.HAMMER_TIME.tyreWearMultiplier, 4);
+    expect(boostWearDelta).toBeCloseTo(baseWearDelta * CONFIG.HAMMER_TIME.mode.push.tyreWear, 4);
+  });
+});
+
+describe("Hammer Time modes", () => {
+  it("requestHammer stores the chosen mode on the car (default push)", () => {
+    const { engine, heroId } = heroEngine();
+    engine.cars.find((c) => c.driverId === heroId)!.lap = 2;
+    engine.requestHammer(heroId, "attack");
+    expect(engine.cars.find((c) => c.driverId === heroId)!.hammerMode).toBe("attack");
+  });
+
+  it("no-arg requestHammer defaults to push", () => {
+    const { engine, heroId } = heroEngine();
+    engine.cars.find((c) => c.driverId === heroId)!.lap = 2;
+    engine.requestHammer(heroId);
+    expect(engine.cars.find((c) => c.driverId === heroId)!.hammerMode).toBe("push");
+  });
+
+  it("snapshot exposes the active mode", () => {
+    const { engine, heroId } = heroEngine();
+    engine.cars.find((c) => c.driverId === heroId)!.lap = 2;
+    engine.requestHammer(heroId, "defend");
+    const hc = engine.snapshot().cars.find((c) => c.driverId === heroId)!;
+    expect(hc.hammerTime.active).toBe(true);
+    expect(hc.hammerTime.mode).toBe("defend");
+  });
+
+  it("defend mode makes the active car harder to pass (lower passProbability)", () => {
+    const { engine, heroId } = heroEngine({ laps: 8, seed: 42 });
+    const heroCar = engine.cars.find((c) => c.driverId === heroId)!;
+    heroCar.lap = 2;
+    const base = passProbability({
+      paceDeltaMs: 1.5, attackSkill: 5, defenseSkill: 5, tyreAdvantage: 0,
+      trainSize: 0, overtakingScore: 0.8, attackerAlreadyAhead: false, lapDelta: 0,
+    });
+    const defending = passProbability({
+      paceDeltaMs: 1.5, attackSkill: 5, defenseSkill: 5, tyreAdvantage: 0,
+      trainSize: 0, overtakingScore: 0.8, attackerAlreadyAhead: false, lapDelta: 0,
+      defenderHammerMode: "defend",
+    });
+    expect(defending).toBeLessThan(base);
   });
 });

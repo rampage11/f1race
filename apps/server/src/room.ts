@@ -19,6 +19,7 @@ import {
   startCategory,
   xpForRace,
   type Driver,
+  type HammerMode,
   type PilotProfile,
   type RaceResult,
   type RaceResultRow,
@@ -462,12 +463,12 @@ export class Room {
     return null;
   }
 
-  requestHammer(connectionId: ConnectionId): CommandError {
+  requestHammer(connectionId: ConnectionId, mode: HammerMode): CommandError {
     const driverId = this.driverIdOf(connectionId);
     if (!driverId) return "no driver for connection";
     if (!this.rateLimitOk(connectionId, "hammerTime")) return "rate limit: hammerTime";
     if (this.stage !== "race" || !this.race) return "hammer not available now";
-    const result = this.race.requestHammer(driverId);
+    const result = this.race.requestHammer(driverId, mode);
     switch (result) {
       case "activated":
         return null;

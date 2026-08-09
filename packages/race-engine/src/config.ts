@@ -179,12 +179,15 @@ export const CONFIG = {
   HAMMER_TIME: {
     durationSec: 15,
     cooldownSec: 45,
-    corneringMultiplier: 1.15,
-    overtakeMultiplier: 1.25,
-    defenseMultiplier: 0.8,
-    tyreWearMultiplier: 2.0,
     minTyreWearToActivate: 0.80,
     firstLapLock: true,
+    // Three strategic modes. The activating car picks one; the multipliers apply only while
+    // its hammer window is open. `defense` > 1 makes that car HARDER to pass when attacked.
+    mode: {
+      attack: { cornering: 1.05, overtake: 1.40, defense: 1.0,  tyreWear: 1.8 },
+      defend: { cornering: 1.10, overtake: 1.0,  defense: 1.50, tyreWear: 1.5 },
+      push:   { cornering: 1.20, overtake: 1.10, defense: 1.0,  tyreWear: 2.2 },
+    },
   },
 
   weather: {

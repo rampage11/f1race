@@ -544,7 +544,7 @@ describe("Room (unit): hammer time (engine integration)", () => {
     const sink = makeSink();
     room.addConnection("conn-a", sink, HERO_A);
     expect(room.currentStage).toBe("qualy");
-    const err = room.requestHammer("conn-a");
+    const err = room.requestHammer("conn-a", "push");
     expect(err).toMatch(/hammer not available now/);
     room.stop();
   });
@@ -555,7 +555,7 @@ describe("Room (unit): hammer time (engine integration)", () => {
     room.addConnection("conn-a", sink, HERO_A);
     room.__advanceForTest({ stopAtRace: true });
     expect(room.currentStage).toBe("race");
-    const err = room.requestHammer("conn-a");
+    const err = room.requestHammer("conn-a", "push");
     expect(err).toMatch(/hammer time locked on lap 1/);
     room.stop();
   });
@@ -568,7 +568,7 @@ describe("Room (unit): hammer time (engine integration)", () => {
     // Release the first-lap lock: step until the hero completes lap 1 (car.lap >= 2).
     room.__stepUntilLapForTest(driverId, 2);
 
-    const err1 = room.requestHammer("conn-a");
+    const err1 = room.requestHammer("conn-a", "push");
     expect(err1).toBeNull();
     room.__emitSnapshotForTest();
 
@@ -583,7 +583,7 @@ describe("Room (unit): hammer time (engine integration)", () => {
     expect(hero!.hammerTime.active).toBe(true);
 
     // Second call within the 300ms rate-limit window → rate-limited (not cooldown).
-    const err2 = room.requestHammer("conn-a");
+    const err2 = room.requestHammer("conn-a", "push");
     expect(err2).toMatch(/rate limit: hammerTime/);
     room.stop();
   });
@@ -595,11 +595,11 @@ describe("Room (unit): hammer time (engine integration)", () => {
     room.__advanceForTest({ stopAtRace: true });
     room.__stepUntilLapForTest(driverId, 2);
 
-    expect(room.requestHammer("conn-a")).toBeNull();
+    expect(room.requestHammer("conn-a", "push")).toBeNull();
     // Wait past the 300ms rate limit; the engine cooldown (30s sim-time) is unaffected by
     // wall-clock waiting, so the next call must hit "rejected_cooldown".
     await new Promise((r) => setTimeout(r, 350));
-    const err = room.requestHammer("conn-a");
+    const err = room.requestHammer("conn-a", "push");
     expect(err).toMatch(/hammer time on cooldown/);
     room.stop();
   });

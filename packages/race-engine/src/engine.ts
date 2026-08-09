@@ -7,6 +7,7 @@ import type {
   CarSnapshot,
   CarState,
   Driver,
+  HammerMode,
   RaceConfig,
   RaceEvent,
   RaceResult,
@@ -85,6 +86,10 @@ export class RaceEngine {
     return this.time < car.hammerActiveUntil;
   }
 
+  private hammerModeOf(car: CarState): HammerMode | null {
+    return this.time < car.hammerActiveUntil ? car.hammerMode : null;
+  }
+
   private computeT0(): number {
     const raw = this.config.track.segments.reduce((t, seg) => t + seg.length / seg.targetSpeed, 0);
     return raw * CONFIG.physics.brakingOverhead;
@@ -143,6 +148,7 @@ export class RaceEngine {
         hammerActiveUntil: 0,
         hammerReadyAt: 0,
         hammerActiveSecThisLap: 0,
+        hammerMode: null,
         drsActiveUntil: 0,
         tow: false,
         launchMult,
@@ -206,7 +212,7 @@ export class RaceEngine {
     return this.pitRequests.has(driverId);
   }
 
-  requestHammer(driverId: string): HammerRequestResult {
+  requestHammer(driverId: string, mode: HammerMode = "push"): HammerRequestResult {
     if (this.phase !== "racing") return "rejected_not_racing";
     const car = this.cars.find((c) => c.driverId === driverId);
     if (!car) return "rejected_unknown_driver";
@@ -214,6 +220,7 @@ export class RaceEngine {
     if (CONFIG.HAMMER_TIME.firstLapLock && car.lap < 2) return "rejected_first_lap";
     if (car.tyre.wear >= CONFIG.HAMMER_TIME.minTyreWearToActivate) return "rejected_tyre_wear";
     if (this.time < car.hammerReadyAt) return "rejected_cooldown";
+    car.hammerMode = mode;
     car.hammerActiveUntil = this.time + CONFIG.HAMMER_TIME.durationSec;
     car.hammerReadyAt = this.time + CONFIG.HAMMER_TIME.durationSec + CONFIG.HAMMER_TIME.cooldownSec;
     return "activated";
@@ -259,7 +266,8 @@ export class RaceEngine {
       weather: this.effectiveWeather,
       towBonusSec: car.tow ? CONFIG.slipstream.paceBonusSec : 0,
     });
-    const cornerMult = this.hammerActive(car) ? CONFIG.HAMMER_TIME.corneringMultiplier : 1;
+    const hammerMode = this.hammerModeOf(car);
+    const cornerMult = hammerMode ? CONFIG.HAMMER_TIME.mode[hammerMode].cornering : 1;
     const vTarget = this.lookaheadSpeed(sNorm, paceMult, cornerMult);
 
     const sinceGo = this.time - car.effectiveGoDelay;
@@ -298,7 +306,8 @@ export class RaceEngine {
         car.lapStartTime = car.raceTime;
         car.tyre.ageLaps += 1;
         const hammerFrac = lapTime > 0 ? Math.min(1, car.hammerActiveSecThisLap / lapTime) : 0;
-        const wearMult = 1 + hammerFrac * (CONFIG.HAMMER_TIME.tyreWearMultiplier - 1);
+        const wearBase = hammerMode ? CONFIG.HAMMER_TIME.mode[hammerMode].tyreWear : 1;
+        const wearMult = 1 + hammerFrac * (wearBase - 1);
         const wear = wearDeltaForLap(car.tyre, this.lapLengthKm, driver.skills.tyreMgmt, this.effectiveWeather) * wearMult;
         car.tyre.wear = Math.min(1, car.tyre.wear + wear);
         car.hammerActiveSecThisLap = 0;
@@ -602,8 +611,8 @@ export class RaceEngine {
       lapDelta,
       weather: this.effectiveWeather,
       attackerDrsActive: this.time < behind.drsActiveUntil,
-      attackerHammerActive: this.hammerActive(behind),
-      defenderHammerActive: this.hammerActive(ahead),
+      attackerHammerMode: this.hammerModeOf(behind),
+      defenderHammerMode: this.hammerModeOf(ahead),
     });
     behind.battleCooldown = b.attackCooldownSec;
     if (this.rng.bool(p)) {
@@ -714,6 +723,7 @@ export class RaceEngine {
         lateral: c.lateral,
         hammerTime: {
           active: hammerActive,
+          mode: hammerActive ? c.hammerMode : null,
           remainingSec: hammerRemaining,
           cooldownSec: CONFIG.HAMMER_TIME.cooldownSec,
           readyAt: c.hammerReadyAt,

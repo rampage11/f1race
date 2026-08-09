@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
+  HammerMode,
   PilotProfile,
   QualyPhase,
   QualyResultRow,
@@ -91,7 +92,7 @@ export interface SessionCar {
   gapAhead?: number;
   phase?: QualyPhase;
   gridPosition?: number | null;
-  hammerTime?: { active: boolean; remainingSec: number; cooldownSec: number; readyAt: number };
+  hammerTime?: { active: boolean; mode: HammerMode | null; remainingSec: number; cooldownSec: number; readyAt: number };
   drsActive?: boolean;
   tow?: boolean;
 }
@@ -237,7 +238,7 @@ export interface SessionControls {
   cancelPit: () => void;
   restart: () => void;
   sendStartReaction: () => void;
-  requestHammer: () => void;
+  requestHammer: (mode: HammerMode) => void;
   setStartingTyre: (compound: TyreCompound) => void;
 }
 
@@ -562,8 +563,8 @@ export function useRaceSession(hero: PilotProfile, guestId: string): SessionCont
     send({ type: "startReaction", clientTimestamp: performance.now(), sequenceId: seq.sequenceId });
   }, [send]);
 
-  const requestHammer = useCallback(() => {
-    send({ type: "hammerTime" });
+  const requestHammer = useCallback((mode: HammerMode) => {
+    send({ type: "hammerTime", mode });
   }, [send]);
 
   const setStartingTyre = useCallback((compound: TyreCompound) => {
