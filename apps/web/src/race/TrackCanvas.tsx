@@ -600,8 +600,8 @@ function pitPos(pitTimer: number, gridPosition: number, p: Painters): { x: numbe
     fy = lerp(p.pitA.y, p.pitB.y, lf);
   } else {
     const t = (g - 0.85) / 0.15;
-    fx = lerp(p.pitB.x, p.entryPt.x, t);
-    fy = lerp(p.pitB.y, p.entryPt.y, t);
+    fx = lerp(p.pitB.x, p.exitPt.x, t);
+    fy = lerp(p.pitB.y, p.exitPt.y, t);
   }
   return { x: p.sx(fx + sxOff), y: p.sy(fy + syOff) };
 }

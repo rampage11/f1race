@@ -374,7 +374,10 @@ export class RaceEngine {
     if (requested) {
       want = true;
       compound = requested;
-    } else {
+    } else if (driver.kind === "bot") {
+      // Only bots auto-pit on strategy/wear. Humans pit ONLY on an explicit player request —
+      // the player owns pit timing (if they never stop, the F1 compound-rule DSQ at the finish
+      // is the intended consequence, not a silent mid-race auto-pit).
       const cliff = CONFIG.tyres[car.tyre.compound].cliff;
       const wornOut = car.tyre.wear >= cliff * 0.92;
       const lapsLeft = this.config.totalLaps - car.lap;
