@@ -65,6 +65,12 @@ export class Lobby {
     return this.queue.length;
   }
 
+  // True if a LIVE queued entry already holds this identity (guestId / yandex sub).
+  // Used to block the same account from queueing / racing from two devices at once.
+  hasLiveGuest(guestId: string): boolean {
+    return this.queue.some((e) => e.guestId != null && e.guestId === guestId);
+  }
+
   enqueue(entry: QueueEntry): void {
     this.queue.push(entry);
     this.sendLobbyState(entry);

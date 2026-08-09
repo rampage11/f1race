@@ -1,5 +1,5 @@
 import { CONFIG } from "./config.js";
-import { fatigueFactor, paceSpeedMultiplier, passProbability, computeStartOutcome } from "./formula.js";
+import { fatigueFactor, paceSpeedMultiplier, passProbability, computeStartOutcome, startCategory } from "./formula.js";
 import { mulberry32, type Rng } from "./rng.js";
 import { freshTyre, gripFor, wearDeltaForLap, estimateTyreLifespanLaps } from "./tyres.js";
 import { overtakingScoreAround, segmentAtS, trackLengthKm, trackLengthM } from "./track.js";
@@ -12,18 +12,31 @@ import type {
   RaceResult,
   RaceResultRow,
   RaceSnapshot,
+  TimeOfDay,
   TyreCompound,
+  Weather,
 } from "./types.js";
 
 const PUSH_BALANCED = 1.0;
 
 export interface EngineOptions {
   dt?: number;
+  weather?: Weather;
+  timeOfDay?: TimeOfDay;
 }
 
 export type PitRequestResult =
   | "queued"
   | "rejected_same_compound"
+  | "rejected_unknown_driver"
+  | "rejected_not_racing";
+
+export type HammerRequestResult =
+  | "activated"
+  | "rejected_cooldown"
+  | "rejected_pit"
+  | "rejected_first_lap"
+  | "rejected_tyre_wear"
   | "rejected_unknown_driver"
   | "rejected_not_racing";
 
@@ -41,6 +54,8 @@ export class RaceEngine {
   private events: RaceEvent[] = [];
   private readonly dt: number;
   private readonly pitRequests = new Map<string, TyreCompound>();
+  private readonly weather: Weather;
+  private readonly timeOfDay: TimeOfDay;
 
   constructor(config: RaceConfig, opts: EngineOptions = {}) {
     this.config = config;
@@ -49,9 +64,23 @@ export class RaceEngine {
     this.lapLengthKm = trackLengthKm(config.track);
     this.t0 = this.computeT0();
     this.dt = opts.dt ?? config.dt ?? CONFIG.physics.dtDefault;
+    this.weather = opts.weather ?? config.weather ?? "dry";
+    this.timeOfDay = opts.timeOfDay ?? config.timeOfDay ?? "day";
     this.cars = this.buildCars();
     this.phase = "racing";
     this.pushEvent({ t: 0, type: "race_start" });
+  }
+
+  private get effectiveWeather(): Weather {
+    if (this.weather !== "variable") return this.weather;
+    const switchLap = Math.ceil(this.config.totalLaps / 2);
+    let maxLap = 0;
+    for (const c of this.cars) if (c.lap > maxLap) maxLap = c.lap;
+    return maxLap >= switchLap ? "lightRain" : "dry";
+  }
+
+  private hammerActive(car: CarState): boolean {
+    return this.time < car.hammerActiveUntil;
   }
 
   private computeT0(): number {
@@ -65,6 +94,9 @@ export class RaceEngine {
       const gridPosition = index + 1;
       const initialS = -(gridPosition - 1) * spacing;
       const start = computeStartOutcome(driver.reactionTimeSec, driver.skills.reaction);
+      const cat = startCategory(driver.reactionTimeSec, start.falseStart);
+      const launchMult =
+        cat === "perfect" ? 1.10 : cat === "slow" ? 0.95 : cat === "verySlow" ? 0.90 : 1.0;
       const car: CarState = {
         driverId: driver.id,
         gridPosition,
@@ -106,6 +138,12 @@ export class RaceEngine {
         compoundChanged: false,
         defendingClose: false,
         attackingClose: false,
+        hammerActiveUntil: 0,
+        hammerReadyAt: 0,
+        hammerActiveSecThisLap: 0,
+        drsActiveUntil: 0,
+        tow: false,
+        launchMult,
       };
       if (start.falseStart) {
         this.pushEvent({ t: 0, type: "false_start", driverId: driver.id });
@@ -130,6 +168,7 @@ export class RaceEngine {
     for (const car of this.cars) this.stepCar(car, dt);
     this.handlePits(dt);
     this.updatePositionsAndTrains();
+    this.updateDrsAndTow();
     this.updateBlueFlags();
     this.handleBattles(dt);
     if (this.allFinished()) this.finishRace();
@@ -163,6 +202,19 @@ export class RaceEngine {
 
   hasPendingPit(driverId: string): boolean {
     return this.pitRequests.has(driverId);
+  }
+
+  requestHammer(driverId: string): HammerRequestResult {
+    if (this.phase !== "racing") return "rejected_not_racing";
+    const car = this.cars.find((c) => c.driverId === driverId);
+    if (!car) return "rejected_unknown_driver";
+    if (car.inPits) return "rejected_pit";
+    if (CONFIG.HAMMER_TIME.firstLapLock && car.lap < 2) return "rejected_first_lap";
+    if (car.tyre.wear >= CONFIG.HAMMER_TIME.minTyreWearToActivate) return "rejected_tyre_wear";
+    if (this.time < car.hammerReadyAt) return "rejected_cooldown";
+    car.hammerActiveUntil = this.time + CONFIG.HAMMER_TIME.durationSec;
+    car.hammerReadyAt = this.time + CONFIG.HAMMER_TIME.durationSec + CONFIG.HAMMER_TIME.cooldownSec;
+    return "activated";
   }
 
   private stepCar(car: CarState, dt: number): void {
@@ -202,11 +254,15 @@ export class RaceEngine {
       tyre: car.tyre,
       t0: this.t0,
       noise: car.noiseFactor,
+      weather: this.effectiveWeather,
+      towBonusSec: car.tow ? CONFIG.slipstream.paceBonusSec : 0,
     });
-    const vTarget = this.lookaheadSpeed(sNorm, paceMult);
+    const cornerMult = this.hammerActive(car) ? CONFIG.HAMMER_TIME.corneringMultiplier : 1;
+    const vTarget = this.lookaheadSpeed(sNorm, paceMult, cornerMult);
 
     const sinceGo = this.time - car.effectiveGoDelay;
-    const launchBoost = sinceGo < 8 ? driver.launchFactor : 1;
+    let launchBoost = sinceGo < 8 ? driver.launchFactor : 1;
+    if (sinceGo < 5) launchBoost *= car.launchMult;
     const accelLimit = (CONFIG.physics.maxAccel + (car.bonusAccel > 0 && sinceGo < 3 ? car.bonusAccel : 0)) * launchBoost;
     if (car.v < vTarget) {
       car.v = Math.min(vTarget, car.v + accelLimit * dt);
@@ -217,6 +273,7 @@ export class RaceEngine {
 
     car.s += car.v * dt;
     car.raceTime += dt;
+    if (this.hammerActive(car)) car.hammerActiveSecThisLap += dt;
 
     const distPerLap = this.length;
     const newLap = Math.floor(Math.max(0, car.s - car.initialS) / distPerLap);
@@ -226,17 +283,23 @@ export class RaceEngine {
         const completingLap = car.lap + 1;
         const lapTime = car.raceTime - car.lapStartTime;
         car.lastLapTime = lapTime;
-        if (lapTime < this.fastestLapTime && completingLap <= this.config.totalLaps) {
+        const saneLap = lapTime >= this.t0 * 0.4 && lapTime <= this.t0 * 4;
+        if (saneLap && lapTime < this.fastestLapTime && completingLap <= this.config.totalLaps) {
           this.fastestLapTime = lapTime;
           this.fastestLapDriverId = car.driverId;
           this.pushEvent({ t: this.time, type: "fastest_lap", driverId: car.driverId, lapTime });
         }
-        car.bestLapTime = car.bestLapTime == null ? lapTime : Math.min(car.bestLapTime, lapTime);
+        if (saneLap) {
+          car.bestLapTime = car.bestLapTime == null ? lapTime : Math.min(car.bestLapTime, lapTime);
+        }
         car.lap = completingLap;
         car.lapStartTime = car.raceTime;
         car.tyre.ageLaps += 1;
-        const wear = wearDeltaForLap(car.tyre, this.lapLengthKm, driver.skills.tyreMgmt);
+        const hammerFrac = lapTime > 0 ? Math.min(1, car.hammerActiveSecThisLap / lapTime) : 0;
+        const wearMult = 1 + hammerFrac * (CONFIG.HAMMER_TIME.tyreWearMultiplier - 1);
+        const wear = wearDeltaForLap(car.tyre, this.lapLengthKm, driver.skills.tyreMgmt, this.effectiveWeather) * wearMult;
         car.tyre.wear = Math.min(1, car.tyre.wear + wear);
+        car.hammerActiveSecThisLap = 0;
         if (car.lap >= this.config.totalLaps) {
           this.finishCar(car);
           return;
@@ -251,7 +314,7 @@ export class RaceEngine {
     return car.pushLevel;
   }
 
-  private lookaheadSpeed(sNorm: number, paceMult: number): number {
+  private lookaheadSpeed(sNorm: number, paceMult: number, cornerMult = 1): number {
     const LOOKAHEAD = 280;
     const STEP = 14;
     const brake = CONFIG.physics.maxBrake;
@@ -259,7 +322,8 @@ export class RaceEngine {
     for (let d = 0; d <= LOOKAHEAD; d += STEP) {
       const s = (sNorm + d) % this.length;
       const seg = segmentAtS(this.config.track, s);
-      const vSeg = seg.targetSpeed * paceMult;
+      const segTarget = seg.kind === "corner" ? seg.targetSpeed * cornerMult : seg.targetSpeed;
+      const vSeg = segTarget * paceMult;
       const allowed = Math.sqrt(vSeg * vSeg + 2 * brake * d);
       if (allowed < limit) limit = allowed;
     }
@@ -282,7 +346,11 @@ export class RaceEngine {
 
     let want = false;
     let compound: TyreCompound = plan.compound;
-    if (compound === car.tyre.compound) {
+    const effW = this.effectiveWeather;
+    const rainy = effW === "lightRain" || effW === "heavyRain";
+    if (rainy) {
+      compound = effW === "heavyRain" ? "wet" : "intermediate";
+    } else if (compound === car.tyre.compound) {
       const alts = (["soft", "medium", "hard"] as TyreCompound[]).filter((c) => c !== car.tyre.compound);
       compound = alts.includes("medium") ? "medium" : alts[0]!;
     }
@@ -331,11 +399,16 @@ export class RaceEngine {
         car.pendingTyre = null;
         car.tyreStops += 1;
       }
+      const lapsDone = Math.floor((car.s - car.initialS) / this.length);
+      if (lapsDone > car.lap) {
+        car.lap = lapsDone;
+        car.lapStartTime = car.raceTime;
+      }
       if (car.pitTimer <= 0) {
         car.inPits = false;
         car.pitTimer = 0;
-        const lapsDone = Math.floor((car.s - car.initialS) / this.length);
-        car.s = car.initialS + (lapsDone + 1) * this.length + this.config.track.pitExitS;
+        const nextLineS = (Math.floor(car.s / this.length) + 1) * this.length;
+        car.s = nextLineS + this.config.track.pitExitS;
         car.v = CONFIG.physics.pitApproachSpeed;
         this.pitRequests.delete(car.driverId);
         if (car.s - car.initialS >= this.config.totalLaps * this.length) {
@@ -370,6 +443,26 @@ export class RaceEngine {
       car.trainSize = train;
       car.attackingClose = attacking;
       car.defendingClose = defending;
+    }
+  }
+
+  private updateDrsAndTow(): void {
+    for (const car of this.cars) car.tow = false;
+    const active = this.cars.filter((c) => !c.dnf && !c.finished && !c.inPits);
+    const ranked = [...active].sort((a, b) => this.compareOnTrack(a, b));
+    for (let i = 0; i < ranked.length - 1; i++) {
+      const ahead = ranked[i]!;
+      const behind = ranked[i + 1]!;
+      const sNorm = ((behind.s % this.length) + this.length) % this.length;
+      const gap = this.gapBetweenSec(ahead, behind);
+      if (gap <= 0) continue;
+      const seg = segmentAtS(this.config.track, sNorm);
+      const ovOk = seg.overtaking >= CONFIG.slipstream.minOvertakingScore;
+      if (gap <= CONFIG.slipstream.gapSec && ovOk) behind.tow = true;
+      const inZone = this.config.track.drsZones.some((z) => sNorm >= z.startS && sNorm <= z.endS);
+      if (inZone && gap <= CONFIG.battle.drsGapSec && ovOk) {
+        behind.drsActiveUntil = this.time + 1.0;
+      }
     }
   }
 
@@ -489,7 +582,7 @@ export class RaceEngine {
       return;
     }
     const paceDeltaMs = behind.v - ahead.v;
-    const tyreAdv = gripFor(behind.tyre) - gripFor(ahead.tyre);
+    const tyreAdv = gripFor(behind.tyre, this.effectiveWeather) - gripFor(ahead.tyre, this.effectiveWeather);
     const aheadDriver = this.driverOf(ahead);
     const p = passProbability({
       paceDeltaMs,
@@ -500,6 +593,10 @@ export class RaceEngine {
       overtakingScore: ov,
       attackerAlreadyAhead: false,
       lapDelta,
+      weather: this.effectiveWeather,
+      attackerDrsActive: this.time < behind.drsActiveUntil,
+      attackerHammerActive: this.hammerActive(behind),
+      defenderHammerActive: this.hammerActive(ahead),
     });
     behind.battleCooldown = b.attackCooldownSec;
     if (this.rng.bool(p)) {
@@ -579,6 +676,11 @@ export class RaceEngine {
       const sNorm = ((c.s % this.length) + this.length) % this.length;
       const gapAhead = prevAhead && !prevAhead.finished ? this.gapBetweenSec(prevAhead, c) : 0;
       prevAhead = c;
+      const hammerActive = this.time < c.hammerActiveUntil;
+      const inCooldown = !hammerActive && this.time < c.hammerReadyAt;
+      const hammerRemaining = hammerActive
+        ? Math.max(0, c.hammerActiveUntil - this.time)
+        : inCooldown ? Math.max(0, c.hammerReadyAt - this.time) : 0;
       return {
         driverId: c.driverId,
         name: driver.name,
@@ -603,6 +705,14 @@ export class RaceEngine {
         overtakeScore: c.overtakeScore,
         blueFlag: c.blueFlag,
         lateral: c.lateral,
+        hammerTime: {
+          active: hammerActive,
+          remainingSec: hammerRemaining,
+          cooldownSec: CONFIG.HAMMER_TIME.cooldownSec,
+          readyAt: c.hammerReadyAt,
+        },
+        drsActive: this.time < c.drsActiveUntil,
+        tow: c.tow,
       };
     });
     return {
@@ -614,6 +724,12 @@ export class RaceEngine {
       fastestLapDriverId: this.fastestLapDriverId,
       events: this.events,
       heroId: this.config.heroId ?? null,
+      weather: this.weather,
+      effectiveWeather: this.effectiveWeather,
+      timeOfDay: this.timeOfDay,
+      trackId: this.config.track.id,
+      trackName: this.config.track.name,
+      trackCountry: this.config.track.country,
     };
   }
 }

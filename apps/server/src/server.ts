@@ -158,6 +158,23 @@ function applyOrError(ws: WebSocket, error: string | null): void {
   if (error) send(ws, { type: "error", message: error });
 }
 
+// Is this identity (guestId / Yandex sub) already holding a LIVE connection somewhere —
+// either queued in the lobby or connected in any room? Excludes the calling connection.
+function identityLiveElsewhere(
+  guestId: string,
+  selfConnectionId: string,
+  rooms: Map<string, Room>,
+  lobby: Lobby,
+): boolean {
+  if (lobby.hasLiveGuest(guestId)) {
+    return true;
+  }
+  for (const room of rooms.values()) {
+    if (room.hasLiveGuest(guestId)) return true;
+  }
+  return false;
+}
+
 function handle(
   conn: ConnState,
   msg: ClientMessage,
@@ -196,6 +213,14 @@ function handle(
       // division for matching. The resolved profile travels with the queue entry and is
       // passed back into Room.addConnection when the lobby assigns a room.
       const resolved = resolveHeroProfile(repository, msg.hero, resolvedGuestId);
+      // One live session per identity: block the same account (guestId / Yandex sub) from
+      // entering the queue or a room while it already holds a LIVE connection elsewhere
+      // (e.g. a second device/tab). Lingering grace-period sockets don't count — reconnect
+      // handles those. Ephemeral (no guestId) connections skip the check.
+      if (resolved.guestId && identityLiveElsewhere(resolved.guestId, conn.connectionId, rooms, lobby)) {
+        send(ws, { type: "error", message: "this account is already in a race — close the other device/tab first" });
+        break;
+      }
       lobby.enqueue({
         connectionId: conn.connectionId,
         sink: makeSink(ws),
@@ -239,6 +264,12 @@ function handle(
       break;
     case "cancelPit":
       applyOrError(ws, conn.room?.cancelPit(conn.connectionId) ?? null);
+      break;
+    case "hammerTime":
+      applyOrError(ws, conn.room?.requestHammer(conn.connectionId) ?? null);
+      break;
+    case "setStartingTyre":
+      applyOrError(ws, conn.room?.requestSetStartingTyre(conn.connectionId, msg.compound) ?? null);
       break;
     case "startReaction":
       applyOrError(

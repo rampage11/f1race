@@ -12,15 +12,21 @@ import {
   makeDriver,
   mulberry32,
   nextDriverId,
+  randomTrack,
   recommendedLaps,
-  redBullRing,
   skillSum,
+  startCategory,
   xpForRace,
   type Driver,
   type PilotProfile,
   type RaceResult,
   type RaceResultRow,
+  type Rng,
+  type StartCategory,
+  type TimeOfDay,
+  type Track,
   type TyreCompound,
+  type Weather,
 } from "@f1race/race-engine";
 import type { Division, RoomMode, RoomPlayer, ServerMessage, Stage } from "./protocol.js";
 import type { DriverProfile, DriverProfileRepository } from "./persistence/repository.js";
@@ -55,7 +61,45 @@ const RATE_LIMITS_MS: Record<string, number> = {
   pause: 500,
   speed: 500,
   startReaction: 200,
+  hammerTime: 300,
+  setStartingTyre: 800,
 };
+
+const VALID_COMPOUNDS: ReadonlySet<TyreCompound> = new Set<TyreCompound>([
+  "soft",
+  "medium",
+  "hard",
+  "intermediate",
+  "wet",
+]);
+
+const DRY_COMPOUNDS: TyreCompound[] = ["soft", "medium", "hard"];
+
+function sampleWeather(rng: Rng): Weather {
+  const p = CONFIG.weather.probability;
+  const r = rng.next();
+  let acc = p.dry;
+  if (r < acc) return "dry";
+  acc += p.lightRain;
+  if (r < acc) return "lightRain";
+  acc += p.heavyRain;
+  if (r < acc) return "heavyRain";
+  return "variable";
+}
+
+function sampleTimeOfDay(rng: Rng): TimeOfDay {
+  const p = CONFIG.timeOfDay.probability;
+  const r = rng.next();
+  if (r < p.day) return "day";
+  if (r < p.day + p.sunset) return "sunset";
+  return "night";
+}
+
+function compoundForWeather(weather: Weather, rng: Rng): TyreCompound {
+  if (weather === "heavyRain") return rng.bool(0.9) ? "wet" : "intermediate";
+  if (weather === "lightRain") return rng.bool(0.7) ? "intermediate" : "medium";
+  return rng.pick(DRY_COMPOUNDS);
+}
 
 export type ConnectionId = string;
 
@@ -177,10 +221,32 @@ export class Room {
   private sequenceResolveAt: number | null = null;
   private sequenceTimer: ReturnType<typeof setTimeout> | null = null;
   private startReactions = new Map<string, number>(); // driverId -> server receipt ms (first click only)
-  private startResults = new Map<string, { reactionSec: number; jumpStart: boolean }>();
+  private startResults = new Map<string, { reactionSec: number; jumpStart: boolean; category: StartCategory }>();
+  // Pre-qualifying tyre pick (per connection). Captured during qualy/startSequence via
+  // setStartingTyre and applied to the hero Driver when the race grid is built (startRace).
+  private pendingStartingTyre = new Map<ConnectionId, TyreCompound>();
+  // Assigned by rerollConditions() (called from the constructor and on restart).
+  private track!: Track;
+  private weather!: Weather;
+  private timeOfDay!: TimeOfDay;
 
   constructor(private repository: DriverProfileRepository | null = null) {
     this.id = randomUUID();
+    // Random per-room initial seed so different rooms get different first races (track /
+    // weather / timeOfDay). restart() still mutates this deterministically, so each room's
+    // race stays reproducible given its seed — only the STARTING point varies per room.
+    // (Previously this was a constant 42, which made EVERY fresh room open on the same track.)
+    this.seed = Math.floor(Math.random() * 0x7fffffff);
+    this.rerollConditions();
+  }
+
+  // Pick track/weather/timeOfDay from the room's RNG for determinism within a seed.
+  // Called at construction and on restart so a new race can change conditions.
+  private rerollConditions(): void {
+    const rng = mulberry32(this.seed);
+    this.track = randomTrack(rng);
+    this.weather = sampleWeather(rng);
+    this.timeOfDay = sampleTimeOfDay(rng);
   }
 
   get currentStage(): Stage {
@@ -195,6 +261,16 @@ export class Room {
     let n = 0;
     for (const c of this.connections.values()) if (c.connected) n++;
     return n;
+  }
+
+  // True if a LIVE (connected) connection in this room already holds this identity.
+  // Lingering grace-period sockets (connected=false after a drop, awaiting reconnect/eviction)
+  // do NOT count — the player may legitimately re-enter once their old socket is gone.
+  hasLiveGuest(guestId: string): boolean {
+    for (const c of this.connections.values()) {
+      if (c.connected && c.guestId != null && c.guestId === guestId) return true;
+    }
+    return false;
   }
 
   get mode(): RoomMode {
@@ -239,6 +315,15 @@ export class Room {
       mode: this.mode,
     };
     if (r.profile) welcome.profile = profileSummary(r.profile);
+    welcome.track = {
+      id: this.track.id,
+      name: this.track.name,
+      country: this.track.country,
+      lengthM: this.track.lengthM,
+      laps: recommendedLaps(this.track),
+    };
+    welcome.weather = this.weather;
+    welcome.timeOfDay = this.timeOfDay;
     sink.send(welcome);
     this.rebuildField();
     this.restartQualy();
@@ -309,6 +394,15 @@ export class Room {
       mode: this.mode,
     };
     if (rebound.savedProfile) welcome.profile = profileSummary(rebound.savedProfile);
+    welcome.track = {
+      id: this.track.id,
+      name: this.track.name,
+      country: this.track.country,
+      lengthM: this.track.lengthM,
+      laps: recommendedLaps(this.track),
+    };
+    welcome.weather = this.weather;
+    welcome.timeOfDay = this.timeOfDay;
     sink.send(welcome);
     sink.send({ type: "stage", stage: this.stage });
     // Re-send the current lights-out sequence so reconnecting players see the lights.
@@ -367,6 +461,42 @@ export class Room {
     return null;
   }
 
+  requestHammer(connectionId: ConnectionId): CommandError {
+    const driverId = this.driverIdOf(connectionId);
+    if (!driverId) return "no driver for connection";
+    if (!this.rateLimitOk(connectionId, "hammerTime")) return "rate limit: hammerTime";
+    if (this.stage !== "race" || !this.race) return "hammer not available now";
+    const result = this.race.requestHammer(driverId);
+    switch (result) {
+      case "activated":
+        return null;
+      case "rejected_cooldown":
+        return "hammer time on cooldown";
+      case "rejected_pit":
+        return "cannot activate hammer time in pits";
+      case "rejected_first_lap":
+        return "hammer time locked on lap 1";
+      case "rejected_tyre_wear":
+        return "tyre wear too high for hammer time";
+      case "rejected_unknown_driver":
+      case "rejected_not_racing":
+        return "hammer not available now";
+      default:
+        return null;
+    }
+  }
+
+  requestSetStartingTyre(connectionId: ConnectionId, compound: TyreCompound): CommandError {
+    if (!this.connections.has(connectionId)) return "no room for connection";
+    if (!VALID_COMPOUNDS.has(compound)) return "invalid tyre compound";
+    if (!this.rateLimitOk(connectionId, "setStartingTyre")) return "rate limit: setStartingTyre";
+    if (this.stage !== "qualy" && this.stage !== "startSequence") {
+      return "tyre can only be chosen before the race";
+    }
+    this.pendingStartingTyre.set(connectionId, compound);
+    return null;
+  }
+
   recordStartReaction(
     connectionId: ConnectionId,
     clientTimestamp: number,
@@ -392,7 +522,9 @@ export class Room {
     if (!this.rateLimitOk(connectionId, "restart")) return "rate limit: restart";
     this.stop();
     this.clearStartSequence();
+    this.pendingStartingTyre.clear();
     this.seed = (this.seed * 1103515245 + 12345) & 0x7fffffff;
+    this.rerollConditions();
     this.race = null;
     this.result = null;
     this.stage = "qualy";
@@ -426,7 +558,14 @@ export class Room {
 
   tick(): void {
     if (this.paused) return;
-    const eff = this.mode === "multiplayer" ? 1 : this.speed;
+    // Solo and multiplayer both fast-forward at the room's `speed` (default DEFAULT_SPEED=6,
+    // ~6x real-time). There is no real-time driving input in this game (the protocol carries
+    // only pit / hammerTime / start-reaction — no throttle/brake), and the lights-out reaction
+    // is a separate real-time phase, so fast-forwarding the race phase is safe and keeps
+    // multiplayer pace equal to solo (previously multiplayer was locked to 1 step/tick = 1x,
+    // which made 2-player races feel ~6x slower, and a player disconnecting flipped the room
+    // 2x→1x mode causing a visible speedup for whoever stayed).
+    const eff = this.speed;
     const steps = Math.max(1, Math.round((eff * (TICK_MS / 1000)) / DT));
     if (this.stage === "qualy" && this.qualy) {
       let n = steps;
@@ -479,7 +618,10 @@ export class Room {
     for (const conn of this.connections.values()) {
       drivers.push(this.makeHumanDriver(conn.hero, conn.driverId));
     }
-    while (drivers.length < FIELD_SIZE) drivers.push(makeBot({}, rng));
+    while (drivers.length < FIELD_SIZE) {
+      const startingTyre = compoundForWeather(this.weather, rng);
+      drivers.push(makeBot({ startingTyre }, rng));
+    }
     this.drivers = drivers;
   }
 
@@ -502,7 +644,7 @@ export class Room {
   private restartQualy(): void {
     this.qualy = new QualifyingEngine(
       buildQualyConfig({
-        track: redBullRing(),
+        track: this.track,
         drivers: this.drivers,
         seed: this.seed * 7 + 1,
         startIntervalSec: 5,
@@ -514,6 +656,14 @@ export class Room {
   }
 
   private startRace(): void {
+    // Apply the player's pre-qualifying tyre choice (setStartingTyre during qualy/startSequence)
+    // to their hero Driver before the race grid is constructed. Bots keep compoundForWeather.
+    for (const conn of this.connections.values()) {
+      const tyre = this.pendingStartingTyre.get(conn.connectionId);
+      if (!tyre) continue;
+      const d = this.drivers.find((x) => x.id === conn.driverId);
+      if (d) d.startingTyre = tyre;
+    }
     const order = this.qualy!.gridOrder();
     const byId = new Map(this.drivers.map((d) => [d.id, d]));
     const grid: Driver[] = [];
@@ -522,7 +672,7 @@ export class Room {
       if (d) grid.push(d);
     }
     if (grid.length === 0) grid.push(...this.drivers);
-    const track = redBullRing();
+    const track = this.track;
     this.race = new RaceEngine(
       buildRaceConfig({
         track,
@@ -531,6 +681,7 @@ export class Room {
         seed: this.seed * 13 + 5,
         dt: DT,
       }),
+      { weather: this.weather, timeOfDay: this.timeOfDay },
     );
     this.stage = "race";
     this.emitStage();
@@ -572,11 +723,13 @@ export class Room {
       const receipt = this.startReactions.get(d.id);
       if (receipt == null) {
         d.reactionTimeSec = START_LATE_REACTION_SEC;
-        this.startResults.set(d.id, { reactionSec: START_LATE_REACTION_SEC, jumpStart: false });
+        const category = startCategory(START_LATE_REACTION_SEC, false);
+        this.startResults.set(d.id, { reactionSec: START_LATE_REACTION_SEC, jumpStart: false, category });
       } else {
         const r = resolveEffectiveReactionSec(receipt, lightsOutAt, DEFAULT_REACTION_OPTIONS);
         d.reactionTimeSec = r.reactionSec;
-        this.startResults.set(d.id, { reactionSec: r.reactionSec, jumpStart: r.jumpStart });
+        const category = startCategory(r.reactionSec, r.jumpStart);
+        this.startResults.set(d.id, { reactionSec: r.reactionSec, jumpStart: r.jumpStart, category });
       }
     }
     this.emitStartResults();
@@ -608,6 +761,7 @@ export class Room {
           driverId: conn.driverId,
           reactionSec: r.reactionSec,
           jumpStart: r.jumpStart,
+          category: r.category,
         });
       }
     }
@@ -623,6 +777,22 @@ export class Room {
   resolveStartSequenceForTest(): void {
     this.resolveStartSequence();
   }
+  /** @internal Emit a snapshot synchronously to all sinks (for mid-race assertions, e.g.
+   *  verifying hammerTime state after a requestHammer call that doesn't itself emit). */
+  __emitSnapshotForTest(): void {
+    this.emitSnapshot();
+  }
+  /** @internal Step the race engine until the given driver's lap >= minLap, or the race
+   *  ends / maxSteps is hit. Used to release the hammer-time first-lap lock (car.lap >= 2)
+   *  without over-stepping into high tyre wear. */
+  __stepUntilLapForTest(driverId: string, minLap: number, maxSteps = 200000): void {
+    if (!this.race || this.stage !== "race") return;
+    for (let i = 0; i < maxSteps && this.race.phase === "racing"; i++) {
+      const car = this.race.cars.find((c) => c.driverId === driverId);
+      if (car && car.lap >= minLap) return;
+      this.race.step(DT);
+    }
+  }
   /** @internal Read back the measured reactionTimeSec applied to a driver. */
   testGetDriverReactionSec(driverId: string): number | null {
     const d = this.drivers.find((x) => x.id === driverId);
@@ -631,6 +801,11 @@ export class Room {
   /** @internal Read back every bot's reactionTimeSec (humans are measured; bots are not). */
   testGetBotReactionSecs(): number[] {
     return this.drivers.filter((d) => d.kind === "bot").map((d) => d.reactionTimeSec);
+  }
+  /** @internal Read back a driver's current startingTyre (post setStartingTyre override). */
+  testGetDriverStartingTyre(driverId: string): TyreCompound | null {
+    const d = this.drivers.find((x) => x.id === driverId);
+    return d ? d.startingTyre : null;
   }
   /** @internal Does this room currently field a driver with this id? (test room lookup) */
   testHasDriverId(driverId: string): boolean {
@@ -658,7 +833,8 @@ export class Room {
       for (const d of this.drivers) {
         if (d.kind !== "human") continue;
         d.reactionTimeSec = reactionSec;
-        this.startResults.set(d.id, { reactionSec, jumpStart: false });
+        const category = startCategory(reactionSec, false);
+        this.startResults.set(d.id, { reactionSec, jumpStart: false, category });
       }
       this.emitStartResults();
       this.startRace();

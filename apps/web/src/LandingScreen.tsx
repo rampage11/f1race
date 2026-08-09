@@ -15,7 +15,7 @@ export function LandingScreen({ onLogin }: LandingScreenProps) {
   return (
     <div className="landing">
       <section className="landing-hero">
-        <h1 className="landing-title">F1 RACE</h1>
+        <h1 className="landing-title ds-heading">F1 RACE</h1>
         <p className="landing-tagline">Реалтайм-гонки с RPG-прогрессией пилота</p>
         {hasYa ? (
           <button type="button" className="yandex-btn landing-cta" onClick={onLogin}>
@@ -32,9 +32,9 @@ export function LandingScreen({ onLogin }: LandingScreenProps) {
 
       <section className="feature-cards">
         {FEATURES.map((f) => (
-          <div className="feature-card" key={f.title}>
+          <div className="feature-card glass-panel" key={f.title}>
             <div className="feature-icon" aria-hidden="true">{f.icon}</div>
-            <h3>{f.title}</h3>
+            <h3 className="ds-heading">{f.title}</h3>
             <p>{f.text}</p>
           </div>
         ))}

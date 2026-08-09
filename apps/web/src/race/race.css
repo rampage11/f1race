@@ -1,0 +1,375 @@
+/* ============================================================
+   RACE EXPERIENCE STYLES (@f1race/web)
+   Race-specific components. Consumes tokens.css / .glass-panel /
+   .neon-button / .ds-* from styles.css — does NOT redefine them.
+   ============================================================ */
+
+/* ---------- Hammer Time button ---------- */
+.hammer-btn {
+  position: fixed;
+  right: 24px;
+  bottom: 240px;
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 40;
+  transition: transform 0.15s var(--ease-standard), opacity 0.2s;
+}
+.hammer-btn:disabled { cursor: not-allowed; }
+.hammer-btn .hammer-ring {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.hammer-btn .hammer-icon {
+  position: absolute;
+  width: 30px;
+  height: 30px;
+  color: #ffffff;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -55%);
+  pointer-events: none;
+}
+.hammer-btn .hammer-count {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 13px;
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+  pointer-events: none;
+}
+.hammer-available {
+  background: var(--accent-green);
+  box-shadow: 0 0 20px rgba(0, 210, 106, 0.4);
+}
+.hammer-available:hover { transform: scale(1.06); }
+.hammer-active {
+  background: var(--accent-red);
+  box-shadow: 0 0 28px rgba(255, 45, 85, 0.6);
+}
+.hammer-cooldown {
+  background: var(--bg-elevated);
+  opacity: 0.5;
+}
+.hammer-cooldown .hammer-icon { color: var(--text-secondary); }
+
+/* ---------- Topbar meta chips ---------- */
+.topbar-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.ds-topbar-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+.ds-topbar-chip .ds-heading { font-size: 13px; letter-spacing: 0.02em; }
+.ds-topbar-flag { font-size: 16px; }
+.ds-topbar-sub { color: var(--text-secondary); font-size: 12px; }
+
+/* ---------- Telemetry ---------- */
+.ds-telemetry {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.ds-telemetry .glass-panel { padding: 12px 14px; }
+.ds-tel-left { display: flex; flex-direction: column; gap: 6px; }
+.ds-tel-pos { font-size: 44px; font-weight: 700; line-height: 1; color: var(--text-primary); }
+.ds-tel-of { font-size: 18px; color: var(--text-secondary); font-weight: 400; }
+.ds-tel-gaps { display: flex; gap: 14px; }
+.ds-tel-gap { display: flex; flex-direction: column; }
+.ds-tel-gap .ds-mono { font-size: 14px; color: var(--text-primary); }
+.ds-tel-gap.gap-warn .ds-mono { color: var(--accent-orange); }
+.ds-tel-gap.gap-good .ds-mono { color: var(--accent-green); }
+.ds-tel-lap { font-size: 14px; color: var(--text-secondary); }
+.ds-tel-best { display: flex; flex-direction: column; }
+.ds-tel-best .ds-mono { font-size: 14px; color: var(--text-secondary); }
+.ds-tel-best.fastest .ds-mono { color: var(--accent-gold); }
+
+.ds-tel-right { display: flex; flex-direction: column; gap: 8px; }
+.ds-tel-speed { display: flex; align-items: baseline; gap: 6px; }
+.ds-tel-kmh { font-size: 44px; font-weight: 700; line-height: 1; color: var(--text-primary); }
+.ds-bar {
+  width: 100%;
+  height: 4px;
+  background: var(--bg-elevated);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.ds-bar-fill { height: 100%; border-radius: 4px; }
+.ds-rpm {
+  background: linear-gradient(90deg, var(--accent-green) 0%, var(--accent-orange) 70%, var(--accent-red) 100%);
+  transition: width 0.1s linear;
+}
+.ds-tyre-block { display: flex; flex-direction: column; gap: 4px; }
+.ds-tyre-head { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.ds-tyre-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; border: 1px solid rgba(0,0,0,0.4); }
+.ds-tyre-name { font-weight: 600; }
+.ds-tyre-pct { margin-left: auto; font-size: 12px; color: var(--text-secondary); }
+.ds-tyre-temps { display: grid; grid-template-columns: auto 1fr auto 1fr; align-items: center; gap: 2px 6px; }
+.ds-tyre-temp {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--accent-orange);
+  box-shadow: 0 0 4px rgba(255,159,10,0.5);
+}
+.ds-tel-clock { display: flex; flex-direction: column; margin-top: auto; }
+.ds-tel-clock .ds-mono { font-size: 13px; color: var(--text-secondary); }
+.ds-muted { color: var(--text-secondary); font-size: 12px; }
+
+/* ---------- Standings ---------- */
+.ds-standings { padding: 14px 16px; }
+.ds-stand-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.ds-stand-head h3 { margin: 0; font-size: 13px; }
+.ds-minimap { flex: none; }
+.ds-mm-hero { animation: ds-pulse 1.4s var(--ease-standard) infinite; }
+.ds-stand-list { display: flex; flex-direction: column; gap: 1px; max-height: 320px; overflow: auto; }
+.ds-stand-row {
+  display: grid;
+  grid-template-columns: 26px 12px 1fr 20px 48px;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  border-left: 2px solid transparent;
+}
+.ds-stand-row.hero {
+  background: rgba(0, 210, 106, 0.08);
+  border-left-color: var(--accent-green);
+}
+.ds-stand-row.pitting { opacity: 0.55; }
+.ds-stand-pos { text-align: right; font-size: 12px; }
+.ds-stand-dot { width: 8px; height: 8px; border-radius: 50%; }
+.ds-stand-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ds-stand-tyre { font-weight: 700; text-align: center; }
+.ds-stand-gap { text-align: right; color: var(--text-secondary); }
+
+/* ---------- Pit panel ---------- */
+.ds-pit { padding: 14px 16px; }
+.ds-pit h3 { margin: 0 0 10px; font-size: 13px; }
+.ds-tyre-wear { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+.ds-tyre-wear-head { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.ds-tyre-wear-name { font-weight: 600; }
+.ds-bar-cliff { box-shadow: 0 0 6px rgba(255,45,85,0.5); }
+.ds-pit-active { color: var(--accent-red); font-weight: 600; margin-bottom: 8px; }
+.ds-pit-pending { color: var(--accent-gold); font-weight: 600; margin-bottom: 8px; }
+.ds-tyre-buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.ds-tyre-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: var(--bg-elevated);
+  font-weight: 600;
+  font-size: 12px;
+  border-radius: var(--radius-sm);
+}
+.ds-tyre-btn .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; border: 1px solid rgba(0,0,0,0.5); }
+.ds-pit-cancel { width: 100%; }
+.ds-hint { color: var(--text-secondary); font-size: 11px; margin: 8px 0 0; line-height: 1.4; }
+
+/* ---------- Lobby ---------- */
+.ds-lobby {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 28px 16px;
+}
+.ds-lobby-card {
+  width: 100%;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 12px;
+  padding: 32px 28px;
+}
+.ds-lobby-brand { font-size: 18px; font-weight: 600; color: var(--text-primary); }
+.ds-lobby-division {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: 0.12em;
+  color: var(--accent-gold);
+  padding: 4px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+.ds-lobby-division.muted { color: var(--text-tertiary); }
+.ds-lobby-ring-wrap { margin: 4px 0; }
+.ds-lobby-title { font-size: 22px; color: var(--text-primary); }
+.ds-lobby-status { color: var(--text-secondary); font-size: 14px; margin: 0; }
+.ds-lobby-forecast {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  background: var(--bg-elevated);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+}
+.ds-forecast-row { display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 15px; }
+.ds-forecast-row .ds-heading { font-size: 15px; }
+.ds-lobby-info { font-size: 14px; color: var(--text-secondary); }
+.ds-lobby-info strong { color: var(--text-primary); }
+
+/* ---------- Start category banners ---------- */
+.ds-start-banner {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 28px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+.ds-start-reaction { font-size: 22px; }
+.cat-perfect { color: var(--accent-gold); text-shadow: 0 0 12px rgba(255,214,10,0.5); }
+.cat-good { color: var(--accent-green); }
+.cat-slow { color: var(--accent-orange); }
+.cat-jump { color: var(--accent-red); }
+
+/* ---------- Pre-qualifying tyre select ---------- */
+.ds-tyre-select {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(7, 9, 15, 0.72);
+  backdrop-filter: blur(6px);
+}
+.ds-tyre-select-card {
+  width: 100%;
+  max-width: 560px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 28px 28px 24px;
+}
+.ds-tyre-select-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.ds-tyre-countdown { flex: none; }
+.ds-tyre-count-ring text { dominant-baseline: middle; }
+.ds-tyre-select-title { display: flex; flex-direction: column; gap: 2px; }
+.ds-tyre-select-title .ds-heading {
+  font-family: var(--font-display);
+  font-size: 22px;
+  letter-spacing: 0.04em;
+  color: var(--text-primary);
+  margin: 0;
+}
+.ds-tyre-weather {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+.ds-tyre-weather-main { display: flex; align-items: center; gap: 12px; }
+.ds-tyre-weather-icon { font-size: 34px; line-height: 1; }
+.ds-tyre-weather-text { display: flex; flex-direction: column; gap: 2px; }
+.ds-tyre-weather-text .ds-heading { font-size: 17px; }
+.ds-tyre-weather-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.ds-tyre-select-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 10px;
+}
+.ds-tyre-select-grid.wet { grid-template-columns: 1fr 1fr 1fr 1fr 1fr; }
+.ds-tyre-select-btn {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 16px 8px 12px;
+  background: var(--bg-elevated);
+  border: 2px solid var(--border-active);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-family: var(--font-display);
+  cursor: pointer;
+  transition: transform 0.15s var(--ease-standard), box-shadow 0.15s, background 0.15s;
+}
+.ds-tyre-select-btn:hover { transform: translateY(-2px); background: var(--bg-surface); }
+.ds-tyre-select-btn.recommended {
+  box-shadow: 0 0 0 1px var(--accent-green), 0 0 14px rgba(0, 210, 106, 0.35);
+}
+.ds-tyre-select-btn.selected {
+  border-width: 3px;
+  background: rgba(255, 255, 255, 0.06);
+  transform: translateY(-2px);
+}
+.ds-tyre-rec-badge {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  color: var(--accent-gold);
+  font-size: 13px;
+  line-height: 1;
+}
+.ds-tyre-check {
+  position: absolute;
+  top: 6px;
+  left: 8px;
+  color: var(--accent-green);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+}
+.ds-tyre-select-dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.45);
+}
+.ds-tyre-select-short {
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: 0.06em;
+}
+.ds-tyre-select-char {
+  font-family: var(--font-body);
+  font-size: 11px;
+  color: var(--text-secondary);
+  letter-spacing: 0;
+}
+.ds-tyre-confirm {
+  width: 100%;
+  margin-top: 2px;
+}

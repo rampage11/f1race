@@ -19,5 +19,5 @@ export {
 } from "./qualifying-engine.js";
 export * from "./factory.js";
 export { RaceEngine } from "./engine.js";
-export type { EngineOptions } from "./engine.js";
+export type { EngineOptions, HammerRequestResult } from "./engine.js";
 export { mulberry32, type Rng } from "./rng.js";

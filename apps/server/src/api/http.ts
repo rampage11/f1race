@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import {
   ABSOLUTE_SKILL_MAX,
   SKILL_KEYS,
+  levelFromXp,
   trainingDurationSec,
   validateStartingAllocation,
   type PilotProfile,
@@ -184,7 +185,7 @@ export async function handleApiRequest(
         sendJson(res, 400, { error: `${skill} is already at the maximum (${ABSOLUTE_SKILL_MAX})`, ...buildResponse(env, profile, null, now, justCompleted) }, env.allowedOrigin);
         return true;
       }
-      const durationSec = trainingDurationSec(currentLevel);
+      const durationSec = trainingDurationSec(currentLevel, levelFromXp(profile.totalXp));
       active = env.repository.startTraining(profile.guestId, skill, now, durationSec);
       sendJson(res, 200, buildResponse(env, profile, active, now, justCompleted), env.allowedOrigin);
       return true;

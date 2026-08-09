@@ -17,7 +17,7 @@ export function QualyBoard({ snapshot, heroId }: { snapshot: SessionSnapshot; he
     return a.name.localeCompare(b.name);
   });
   return (
-    <section className="panel standings">
+    <section className="panel standings qualy-board">
       <h3>Квалификация · лучшие круги</h3>
       <div className="list">
         {ranked.map((c, i) => (

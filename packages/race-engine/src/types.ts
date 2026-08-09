@@ -8,7 +8,11 @@ export type SkillKey =
 
 export type Skills = Record<SkillKey, number>;
 
-export type TyreCompound = "soft" | "medium" | "hard";
+export type TyreCompound = "soft" | "medium" | "hard" | "intermediate" | "wet";
+
+export type Weather = "dry" | "lightRain" | "heavyRain" | "variable";
+
+export type TimeOfDay = "day" | "sunset" | "night";
 
 export interface TyreState {
   compound: TyreCompound;
@@ -82,6 +86,12 @@ export interface CarState {
   compoundChanged: boolean;
   defendingClose: boolean;
   attackingClose: boolean;
+  hammerActiveUntil: number;
+  hammerReadyAt: number;
+  hammerActiveSecThisLap: number;
+  drsActiveUntil: number;
+  tow: boolean;
+  launchMult: number;
 }
 
 export type SegmentKind = "straight" | "corner" | "pitlane";
@@ -114,6 +124,8 @@ export interface Track {
   pitEntryS: number;
   pitExitS: number;
   laps: number;
+  drsZones: { startS: number; endS: number }[];
+  sectors: number[];
 }
 
 export interface RaceConfig {
@@ -123,6 +135,8 @@ export interface RaceConfig {
   dt: number;
   seed: number;
   heroId?: string;
+  weather?: Weather;
+  timeOfDay?: TimeOfDay;
 }
 
 export interface RaceResultRow {
@@ -168,6 +182,13 @@ export interface PilotProfile {
   pitCompound: TyreCompound;
 }
 
+export interface HammerTimeSnapshot {
+  active: boolean;
+  remainingSec: number;
+  cooldownSec: number;
+  readyAt: number;
+}
+
 export interface CarSnapshot {
   driverId: string;
   name: string;
@@ -192,6 +213,9 @@ export interface CarSnapshot {
   overtakeScore: number;
   blueFlag: boolean;
   lateral: number;
+  hammerTime: HammerTimeSnapshot;
+  drsActive: boolean;
+  tow: boolean;
 }
 
 export interface RaceSnapshot {
@@ -203,4 +227,10 @@ export interface RaceSnapshot {
   fastestLapDriverId: string | null;
   events: RaceEvent[];
   heroId: string | null;
+  weather: Weather;
+  effectiveWeather: Weather;
+  timeOfDay: TimeOfDay;
+  trackId: string;
+  trackName: string;
+  trackCountry: string;
 }

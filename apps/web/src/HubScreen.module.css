@@ -59,7 +59,17 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
 }
+.hudId:hover .hudName { color: #00d26a; }
+.hudId:hover .statsHint { color: #00d26a; }
 
 .hudName {
   font-size: 14px;
@@ -80,6 +90,15 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.statsHint {
+  font-size: 9px;
+  color: #5b6473;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  line-height: 1;
+  margin-top: 1px;
 }
 
 .teamDot {
@@ -103,6 +122,55 @@
   color: #c7ced8;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+.infoBtn {
+  position: relative;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.05);
+  color: #c7ced8;
+  font-size: 11px;
+  font-weight: 700;
+  font-style: italic;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  line-height: 1;
+  cursor: pointer;
+  flex: none;
+}
+.infoBtn:hover {
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.infoTip {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 240px;
+  padding: 10px 12px;
+  background: rgba(7, 11, 20, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  font-size: 11px;
+  font-style: normal;
+  line-height: 1.45;
+  color: #c7ced8;
+  font-family: var(--font-body, inherit);
+  font-weight: 400;
+  text-align: left;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(8px);
+  z-index: 20;
+  animation: tip-in 0.16s ease-out;
+}
+@keyframes tip-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .logout {
@@ -207,6 +275,42 @@
   font-size: 9px;
   color: #838c99;
   line-height: 1.1;
+}
+
+.capDot {
+  color: var(--accent-orange, #ff9f0a);
+  font-size: 9px;
+  line-height: 1;
+  margin-left: 2px;
+}
+
+.buildingHint {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 5px 9px;
+  background: rgba(7, 11, 20, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 7px;
+  font-size: 10px;
+  line-height: 1.3;
+  color: #c7ced8;
+  font-family: var(--font-body, inherit);
+  white-space: normal;
+  width: max-content;
+  max-width: 170px;
+  text-align: center;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(6px);
+  z-index: 6;
+}
+.building:hover:not(:disabled) .buildingHint,
+.building:focus-visible:not(:disabled) .buildingHint {
+  opacity: 1;
 }
 
 .raceBadge {

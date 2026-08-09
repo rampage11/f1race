@@ -14,16 +14,22 @@ export const TEAM_COLORS: Record<string, string> = {
   Academy: "#FBBF24",
 };
 
+// Concrete hex (mirrors the `--tyre-*` tokens in tokens.css) so values are usable
+// directly as canvas fillStyle / strokeStyle (CSS vars do not resolve on canvas).
 export const TYRE_COLORS: Record<TyreCompound, string> = {
-  soft: "#EF4444",
-  medium: "#EAB308",
-  hard: "#F1F5F9",
+  soft: "#ff2d55",
+  medium: "#ff9f0a",
+  hard: "#f1f5f9",
+  intermediate: "#00d26a",
+  wet: "#0a84ff",
 };
 
 export const TYRE_LABEL: Record<TyreCompound, string> = {
   soft: "Soft",
   medium: "Medium",
   hard: "Hard",
+  intermediate: "Inter",
+  wet: "Wet",
 };
 
 export function teamColor(team: string): string {

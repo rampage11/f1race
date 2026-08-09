@@ -1,5 +1,7 @@
-import type { PilotProfile, TyreCompound } from "@f1race/race-engine";
+import { useEffect, useRef, useState } from "react";
+import type { PilotProfile, TyreCompound, TimeOfDay, Weather } from "@f1race/race-engine";
 import { formatRaceTime } from "./colors";
+import { HammerButton } from "./HammerButton";
 import { PitPanel } from "./PitPanel";
 import { QualyBoard } from "./QualyBoard";
 import { Standings } from "./Standings";
@@ -7,6 +9,7 @@ import { StartLights } from "./StartLights";
 import { Telemetry } from "./Telemetry";
 import { TrackCanvas } from "./TrackCanvas";
 import { LobbyScreen } from "./LobbyScreen";
+import { TyreSelectScreen } from "./TyreSelectScreen";
 import { useRaceSession } from "./useRaceSession";
 import type { RaceProgression } from "./useRaceSession";
 
@@ -19,6 +22,20 @@ function teamColorOf(team: string): string {
   return map[team] ?? "#9CA3AF";
 }
 
+const COUNTRY_FLAGS: Record<string, string> = {
+  AT: "🇦🇹", IT: "🇮🇹", MC: "🇲🇨", BR: "🇧🇷",
+};
+
+const WEATHER_ICON: Record<Weather, string> = {
+  dry: "☀️", lightRain: "🌦️", heavyRain: "⛈️", variable: "🌤️",
+};
+
+const TOD_ICON: Record<TimeOfDay, string> = { day: "☀️", sunset: "🌇", night: "🌙" };
+
+const WEATHER_LABEL: Record<Weather, string> = {
+  dry: "Сухо", lightRain: "Малый дождь", heavyRain: "Ливень", variable: "Перемен.",
+};
+
 export function RaceView({ hero, guestId, onChangeDriver }: { hero: PilotProfile; guestId: string; onChangeDriver: () => void }) {
   const s = useRaceSession(hero, guestId);
   const snap = s.snapshot;
@@ -26,6 +43,30 @@ export function RaceView({ hero, guestId, onChangeDriver }: { hero: PilotProfile
   const isQualy = s.stage === "qualy";
   const isRace = s.stage === "race";
   const isStartSequence = s.stage === "startSequence";
+
+  const [tyreSelectShown, setTyreSelectShown] = useState(false);
+  const tyreSelectSeenForRef = useRef<string | null>(null);
+  // Detect the lobby→qualy transition DURING render (not in a useEffect) so the tyre-select
+  // overlay covers the canvas on the FIRST painted qualy frame — a useEffect runs only after
+  // paint, which let the bare track flash for one frame (ugly on mobile). Calling setState
+  // during render is the documented React pattern; it re-renders synchronously without
+  // committing the intermediate frame, and the guard (seenForRef) prevents any loop.
+  if (!s.inLobby && isQualy && tyreSelectSeenForRef.current !== s.driverId) {
+    tyreSelectSeenForRef.current = s.driverId;
+    setTyreSelectShown(true);
+  }
+  useEffect(() => {
+    if (s.inLobby) {
+      tyreSelectSeenForRef.current = null;
+      if (tyreSelectShown) setTyreSelectShown(false);
+    } else if (!isQualy && !isStartSequence && tyreSelectShown) {
+      setTyreSelectShown(false);
+    }
+  }, [s.inLobby, isQualy, isStartSequence, tyreSelectShown]);
+
+  const trackId = snap?.trackId ?? s.forecast?.trackId;
+  const effWeather = snap?.effectiveWeather ?? s.forecast?.weather;
+  const timeOfDay = snap?.timeOfDay ?? s.forecast?.timeOfDay;
   const stageLabel = isQualy
     ? "Квалификация"
     : isStartSequence
@@ -37,9 +78,14 @@ export function RaceView({ hero, guestId, onChangeDriver }: { hero: PilotProfile
   const mpLockTitle = "недоступно в мультиплеере";
   const connectedHumans = s.players.filter((p) => p.connected).length;
   const lastError = s.errors.length > 0 ? s.errors[s.errors.length - 1] : null;
+  const trackName = snap?.trackName ?? s.forecast?.trackName;
+  const trackCountry = snap?.trackCountry ?? s.forecast?.trackCountry;
+  const lapsRemain = snap && heroCar && snap.totalLaps
+    ? Math.max(0, snap.totalLaps - (heroCar.lap ?? 0))
+    : s.forecast?.laps;
 
   if (s.inLobby) {
-    return <LobbyScreen hero={hero} lobby={s.lobby} connectionState={s.connectionState} />;
+    return <LobbyScreen hero={hero} lobby={s.lobby} connectionState={s.connectionState} forecast={s.forecast} />;
   }
 
   return (
@@ -57,6 +103,33 @@ export function RaceView({ hero, guestId, onChangeDriver }: { hero: PilotProfile
           {connectedHumans > 0 && <span className="players-badge">{connectedHumans} игр.</span>}
           {s.connectionState === "reconnecting" && <span className="warn-text">· переподключение…</span>}
           {s.connectionState === "disconnected" && <span className="warn-text">· связь потеряна</span>}
+        </div>
+        <div className="topbar-meta">
+          {trackName && (
+            <span className="ds-topbar-chip">
+              <span className="ds-topbar-flag">{COUNTRY_FLAGS[trackCountry ?? ""] ?? "🏁"}</span>
+              <span className="ds-heading">{trackName}</span>
+            </span>
+          )}
+          {effWeather && (
+            <span className="ds-topbar-chip">
+              <span>{WEATHER_ICON[effWeather]}</span>
+              <span>{WEATHER_LABEL[effWeather]}</span>
+              {timeOfDay && <span className="ds-topbar-sub">{TOD_ICON[timeOfDay]}</span>}
+            </span>
+          )}
+          {lapsRemain != null && (
+            <span className="ds-topbar-chip">
+              <span className="ds-microtext">ост. кругов</span>
+              <span className="ds-mono">{lapsRemain}</span>
+            </span>
+          )}
+          {snap && (
+            <span className="ds-topbar-chip">
+              <span className="ds-microtext">время</span>
+              <span className="ds-mono">{formatRaceTime(snap.time)}</span>
+            </span>
+          )}
         </div>
         <div className="controls">
           <button
@@ -77,7 +150,7 @@ export function RaceView({ hero, guestId, onChangeDriver }: { hero: PilotProfile
           {lastError && (
             <div className="error-toast" key={lastError.id}>{lastError.message}</div>
           )}
-          <TrackCanvas snapshot={snap} heroId={s.heroId} />
+          <TrackCanvas snapshot={snap} heroId={s.heroId} trackId={trackId} weather={effWeather} timeOfDay={timeOfDay} />
           {isStartSequence && s.startSequence && (
             <StartLights
               lightsOutAt={s.startSequence.lightsOutAt}
@@ -99,6 +172,16 @@ export function RaceView({ hero, guestId, onChangeDriver }: { hero: PilotProfile
                 </div>
               </div>
             </div>
+          )}
+          {isRace && <HammerButton hero={heroCar} onRequest={s.requestHammer} />}
+          {isQualy && tyreSelectShown && (
+            <TyreSelectScreen
+              forecast={s.forecast}
+              onConfirm={(compound: TyreCompound) => {
+                s.setStartingTyre(compound);
+                setTyreSelectShown(false);
+              }}
+            />
           )}
         </div>
 

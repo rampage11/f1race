@@ -68,6 +68,20 @@ export const CONFIG = {
       degCurve: 1.3,
       cliff: 0.88,
     },
+    intermediate: {
+      paceBonusSec: 0.25,
+      gripFresh: 1.05,
+      wearPerKm: 0.018,
+      degCurve: 1.5,
+      cliff: 0.85,
+    },
+    wet: {
+      paceBonusSec: 1.1,
+      gripFresh: 1.10,
+      wearPerKm: 0.012,
+      degCurve: 1.4,
+      cliff: 0.86,
+    },
     tyreMgmtReductionPerPoint: 0.03,
     lapLengthKm: null,
     minGrip: 0.7,
@@ -107,6 +121,7 @@ export const CONFIG = {
     probFloor: 0.01,
     probCeil: 0.92,
     trainStackingMultiplier: 0.6,
+    drsPassMultiplier: 1.20,
   },
 
   blueFlag: {
@@ -156,6 +171,49 @@ export const CONFIG = {
   training: {
     baseDurationSec: 30 * 60,
     growthFactor: 1.6,
+    levelDiscountPerLevel: 0.01,
+    levelDiscountMax: 0.20,
+  },
+
+  HAMMER_TIME: {
+    durationSec: 15,
+    cooldownSec: 15,
+    corneringMultiplier: 1.15,
+    overtakeMultiplier: 1.25,
+    defenseMultiplier: 0.8,
+    tyreWearMultiplier: 2.0,
+    minTyreWearToActivate: 0.80,
+    firstLapLock: true,
+  },
+
+  weather: {
+    gripMultiplier: { dry: 1.0, lightRain: 0.85, heavyRain: 0.65 },
+    overtakeMultiplier: { dry: 1.0, lightRain: 1.15, heavyRain: 1.3 },
+    compoundWeatherGrip: {
+      soft:     { dry: 1.0, lightRain: 0.75, heavyRain: 0.55 },
+      medium:   { dry: 1.0, lightRain: 0.80, heavyRain: 0.60 },
+      hard:     { dry: 1.0, lightRain: 0.82, heavyRain: 0.62 },
+      intermediate: { dry: 0.80, lightRain: 1.10, heavyRain: 0.95 },
+      wet:      { dry: 0.65, lightRain: 1.05, heavyRain: 1.20 },
+    },
+    compoundWeatherWear: {
+      soft:     { dry: 1.0, lightRain: 1.2, heavyRain: 1.5 },
+      medium:   { dry: 1.0, lightRain: 1.1, heavyRain: 1.3 },
+      hard:     { dry: 1.0, lightRain: 1.05, heavyRain: 1.2 },
+      intermediate: { dry: 1.5, lightRain: 0.7, heavyRain: 0.6 },
+      wet:      { dry: 2.0, lightRain: 0.6, heavyRain: 0.5 },
+    },
+    probability: { dry: 0.60, lightRain: 0.25, heavyRain: 0.10, variable: 0.05 },
+  },
+
+  timeOfDay: {
+    probability: { day: 0.70, sunset: 0.20, night: 0.10 },
+  },
+
+  slipstream: {
+    gapSec: 2.0,
+    paceBonusSec: 0.25,
+    minOvertakingScore: 0.3,
   },
 } as const;
 

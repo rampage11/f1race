@@ -6,7 +6,10 @@ import type {
   QualySnapshot,
   RaceResult,
   RaceSnapshot,
+  StartCategory,
+  TimeOfDay,
   TyreCompound,
+  Weather,
 } from "@f1race/race-engine";
 import { writeCachedProfile, getAuthToken, setAuthProfile } from "../identity";
 import type { Division, DriverProfileSummary } from "../identity";
@@ -35,6 +38,17 @@ export interface StartSequence {
 export interface MyStartResult {
   reactionSec: number;
   jumpStart: boolean;
+  category?: StartCategory;
+}
+
+export interface SessionForecast {
+  trackId?: string;
+  trackName?: string;
+  trackCountry?: string;
+  lengthM?: number;
+  laps?: number;
+  weather?: Weather;
+  timeOfDay?: TimeOfDay;
 }
 
 export interface LobbyState {
@@ -77,6 +91,9 @@ export interface SessionCar {
   gapAhead?: number;
   phase?: QualyPhase;
   gridPosition?: number | null;
+  hammerTime?: { active: boolean; remainingSec: number; cooldownSec: number; readyAt: number };
+  drsActive?: boolean;
+  tow?: boolean;
 }
 
 export interface SessionSnapshot {
@@ -86,6 +103,12 @@ export interface SessionSnapshot {
   heroId: string;
   cars: SessionCar[];
   qualyResults?: QualyResultRow[];
+  weather?: Weather;
+  effectiveWeather?: Weather;
+  timeOfDay?: TimeOfDay;
+  trackId?: string;
+  trackName?: string;
+  trackCountry?: string;
 }
 
 export const ERROR_TEXT: Record<string, string> = {
@@ -94,11 +117,14 @@ export const ERROR_TEXT: Record<string, string> = {
   "rate limit: pit": "Слишком частый запрос пит-стопа",
   "rate limit: cancelPit": "Слишком частая отмена пит-стопа",
   "rate limit: restart": "Подождите перед рестартом",
+  "rate limit: setStartingTyre": "Слишком частая смена резины",
   "pit only available during the race": "Пит-стоп доступен только во время гонки",
   "already on that tyre compound": "Этот состав уже стоит — нужна смена (правило Ф1)",
   "unknown driver": "Вашего пилота нет в этой гонке",
   "invalid or expired session token": "Сессия истекла — переподключение новым входом",
   "invalid json": "Сервер не понял команду",
+  "tyre can only be chosen before the race": "Резину можно выбрать только до гонки",
+  "invalid tyre compound": "Недопустимый состав резины",
 };
 
 export function friendlyError(message: string): string {
@@ -149,6 +175,12 @@ function fromRace(snap: RaceSnapshot, heroId: string): SessionSnapshot {
     time: snap.time,
     totalLaps: snap.totalLaps,
     heroId,
+    weather: snap.weather,
+    effectiveWeather: snap.effectiveWeather,
+    timeOfDay: snap.timeOfDay,
+    trackId: snap.trackId,
+    trackName: snap.trackName,
+    trackCountry: snap.trackCountry,
     cars: snap.cars.map((c) => ({
       driverId: c.driverId,
       name: c.name,
@@ -170,6 +202,9 @@ function fromRace(snap: RaceSnapshot, heroId: string): SessionSnapshot {
       overtakeScore: c.overtakeScore,
       gapAhead: c.gapAhead,
       gridPosition: c.gridPosition,
+      hammerTime: c.hammerTime,
+      drsActive: c.drsActive,
+      tow: c.tow,
     })),
   };
 }
@@ -195,12 +230,15 @@ export interface SessionControls {
   reacted: boolean;
   profile: DriverProfileSummary | null;
   lastProgression: RaceProgression | null;
+  forecast: SessionForecast | null;
   setSpeed: (n: number) => void;
   setPaused: (b: boolean) => void;
   requestPit: (compound: TyreCompound) => void;
   cancelPit: () => void;
   restart: () => void;
   sendStartReaction: () => void;
+  requestHammer: () => void;
+  setStartingTyre: (compound: TyreCompound) => void;
 }
 
 export function useRaceSession(hero: PilotProfile, guestId: string): SessionControls {
@@ -221,6 +259,7 @@ export function useRaceSession(hero: PilotProfile, guestId: string): SessionCont
   const [lastProgression, setLastProgression] = useState<RaceProgression | null>(null);
   const [lobby, setLobby] = useState<LobbyState | null>(null);
   const [lobbyWaiting, setLobbyWaiting] = useState(false);
+  const [forecast, setForecast] = useState<SessionForecast | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
   const heroRef = useRef(hero);
@@ -352,7 +391,11 @@ export function useRaceSession(hero: PilotProfile, guestId: string): SessionCont
             break;
           }
           case "welcome": {
-            const m = msg as unknown as { driverId: string; sessionToken: string; mode: RoomMode; profile?: DriverProfileSummary };
+            const m = msg as unknown as {
+              driverId: string; sessionToken: string; mode: RoomMode; profile?: DriverProfileSummary;
+              track?: { id: string; name: string; country: string; lengthM: number; laps: number };
+              weather?: Weather; timeOfDay?: TimeOfDay;
+            };
             pendingReconnectRef.current = false;
             lobbyWaitingRef.current = false;
             setLobbyWaiting(false);
@@ -361,6 +404,17 @@ export function useRaceSession(hero: PilotProfile, guestId: string): SessionCont
             setDriverId(m.driverId);
             setMode(m.mode);
             storeToken(m.sessionToken);
+            if (m.track || m.weather || m.timeOfDay) {
+              setForecast({
+                trackId: m.track?.id,
+                trackName: m.track?.name,
+                trackCountry: m.track?.country,
+                lengthM: m.track?.lengthM,
+                laps: m.track?.laps,
+                weather: m.weather,
+                timeOfDay: m.timeOfDay,
+              });
+            }
             if (m.profile) {
               setProfile(m.profile);
               writeCachedProfile(m.profile);
@@ -404,9 +458,9 @@ export function useRaceSession(hero: PilotProfile, guestId: string): SessionCont
             break;
           }
           case "startResult": {
-            const m = msg as unknown as { driverId: string; reactionSec: number; jumpStart: boolean };
+            const m = msg as unknown as { driverId: string; reactionSec: number; jumpStart: boolean; category?: StartCategory };
             if (m.driverId === driverIdRef.current) {
-              setMyStartResult({ reactionSec: m.reactionSec, jumpStart: m.jumpStart });
+              setMyStartResult({ reactionSec: m.reactionSec, jumpStart: m.jumpStart, category: m.category });
             }
             break;
           }
@@ -508,6 +562,14 @@ export function useRaceSession(hero: PilotProfile, guestId: string): SessionCont
     send({ type: "startReaction", clientTimestamp: performance.now(), sequenceId: seq.sequenceId });
   }, [send]);
 
+  const requestHammer = useCallback(() => {
+    send({ type: "hammerTime" });
+  }, [send]);
+
+  const setStartingTyre = useCallback((compound: TyreCompound) => {
+    send({ type: "setStartingTyre", compound });
+  }, [send]);
+
   const heroId = driverId || snapshot?.heroId || "";
   const reconnecting = connectionState === "reconnecting";
   const reacted = startSequence !== null && reactedSequenceId === startSequence.sequenceId;
@@ -535,12 +597,15 @@ export function useRaceSession(hero: PilotProfile, guestId: string): SessionCont
       reacted,
       profile,
       lastProgression,
+      forecast,
       setSpeed,
       setPaused,
       requestPit,
       cancelPit,
       restart,
       sendStartReaction,
+      requestHammer,
+      setStartingTyre,
     }),
     [
       connectionState,
@@ -562,12 +627,15 @@ export function useRaceSession(hero: PilotProfile, guestId: string): SessionCont
       reacted,
       profile,
       lastProgression,
+      forecast,
       setSpeed,
       setPaused,
       requestPit,
       cancelPit,
       restart,
       sendStartReaction,
+      requestHammer,
+      setStartingTyre,
     ],
   );
 }

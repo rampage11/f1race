@@ -1,12 +1,15 @@
+@import "./tokens.css";
+
 :root {
   color-scheme: dark;
-  --bg: #0b1220;
-  --panel: #111a2e;
-  --panel-2: #0f1729;
-  --line: #1f2a44;
-  --text: #e2e8f0;
-  --muted: #94a3b8;
-  --accent: #fbbf24;
+  /* Legacy aliases — remapped onto tokens.css. Do not extend; use tokens directly. */
+  --bg: var(--bg-primary);
+  --panel: var(--bg-surface);
+  --panel-2: var(--bg-elevated);
+  --line: var(--border-subtle);
+  --text: var(--text-primary);
+  --muted: var(--text-secondary);
+  --accent: var(--accent-gold);
 }
 
 * { box-sizing: border-box; }
@@ -17,7 +20,7 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-family: var(--font-body);
 }
 
 .app { max-width: 1320px; margin: 0 auto; padding: 16px; }
@@ -104,6 +107,13 @@ button.restart { border-color: var(--line); }
 .standings .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .standings .tyre { font-weight: 700; text-align: center; }
 .standings .gap { color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+/* Qualy board: the ".tyre" cell holds the PHASE WORD (прогрев/боевой/возврат/финишировал), not a
+   single tyre letter, so give it + the time auto width instead of the 18px race-standings slot. */
+.qualy-board .row { grid-template-columns: 24px 12px 1fr auto auto; }
+.qualy-board .tyre {
+  font-weight: 600; font-size: 11px; text-align: right; white-space: nowrap; color: var(--muted);
+  letter-spacing: 0.02em; text-transform: lowercase;
+}
 
 .overlay {
   position: absolute; inset: 0;
@@ -573,4 +583,130 @@ button.ghost { background: transparent; }
   transition: background 0.15s;
 }
 .race-cta:hover:not(:disabled) { background: #f59e0b; }
+
+/* ============================================================
+   ===== DESIGN-SYSTEM BASE COMPONENTS =====
+   Prefixes `glass-panel` / `neon-button` / `ds-*` are reserved —
+   do NOT reuse these class names elsewhere.
+   ============================================================ */
+
+/* ---------- Glass panel ---------- */
+.glass-panel {
+  background: rgba(18, 18, 26, 0.92);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+/* ---------- Neon button ---------- */
+.neon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 18px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #ffffff;
+  background: linear-gradient(135deg, var(--accent-red), var(--accent-orange));
+  border: none;
+  border-radius: var(--radius-md);
+  padding: 16px 32px;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(255, 45, 85, 0.3), inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+  transition: all 0.2s var(--ease-standard);
+}
+.neon-button:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(255, 45, 85, 0.45), inset 0 0 0 1px rgba(255, 255, 255, 0.15);
+}
+.neon-button:active:not(:disabled) {
+  transform: translateY(0);
+}
+.neon-button:disabled {
+  background: #2a2a35;
+  color: rgba(255, 255, 255, 0.3);
+  box-shadow: none;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* ---------- Keyframes ---------- */
+@keyframes ds-pulse {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 4px 16px rgba(255, 45, 85, 0.3);
+  }
+  50% {
+    transform: scale(1.02);
+    box-shadow: 0 4px 16px rgba(255, 45, 85, 0.5);
+  }
+}
+
+@keyframes ds-fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes ds-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-6px); }
+  40% { transform: translateX(6px); }
+  60% { transform: translateX(-4px); }
+  80% { transform: translateX(4px); }
+}
+
+/* ---------- Animation utilities ---------- */
+.ds-pulse {
+  animation: ds-pulse 2s var(--ease-standard) infinite;
+}
+
+.ds-fade-in-up {
+  animation: ds-fade-in-up 0.4s var(--ease-standard) both;
+}
+
+.ds-stagger > * {
+  animation: ds-fade-in-up 0.4s var(--ease-standard) both;
+}
+.ds-stagger > *:nth-child(1) { animation-delay: 0ms; }
+.ds-stagger > *:nth-child(2) { animation-delay: 60ms; }
+.ds-stagger > *:nth-child(3) { animation-delay: 120ms; }
+.ds-stagger > *:nth-child(4) { animation-delay: 180ms; }
+.ds-stagger > *:nth-child(5) { animation-delay: 240ms; }
+.ds-stagger > *:nth-child(6) { animation-delay: 300ms; }
+.ds-stagger > *:nth-child(7) { animation-delay: 360ms; }
+.ds-stagger > *:nth-child(8) { animation-delay: 420ms; }
+
+/* ---------- Text utilities ---------- */
+.ds-microtext {
+  font-size: var(--font-size-micro);
+  font-weight: 500;
+  letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+.ds-heading {
+  font-family: var(--font-display);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-display);
+}
+
+.ds-mono {
+  font-family: var(--font-mono);
+  font-weight: var(--font-weight-mono);
+  font-variant-numeric: tabular-nums;
+}
 

@@ -7,8 +7,10 @@ import type {
   PitPlan,
   RaceConfig,
   Skills,
+  TimeOfDay,
   Track,
   TyreCompound,
+  Weather,
 } from "./types.js";
 
 let idCounter = 0;
@@ -120,6 +122,8 @@ export function buildRaceConfig(args: {
   seed?: number;
   dt?: number;
   heroId?: string;
+  weather?: Weather;
+  timeOfDay?: TimeOfDay;
 }): RaceConfig {
   const cfg: RaceConfig = {
     track: args.track,
@@ -129,6 +133,8 @@ export function buildRaceConfig(args: {
     dt: args.dt ?? CONFIG.physics.dtDefault,
   };
   if (args.heroId) cfg.heroId = args.heroId;
+  if (args.weather) cfg.weather = args.weather;
+  if (args.timeOfDay) cfg.timeOfDay = args.timeOfDay;
   return cfg;
 }
 

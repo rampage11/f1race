@@ -1,4 +1,13 @@
-import type { PilotProfile, QualySnapshot, RaceResult, RaceSnapshot, TyreCompound } from "@f1race/race-engine";
+import type {
+  PilotProfile,
+  QualySnapshot,
+  RaceResult,
+  RaceSnapshot,
+  StartCategory,
+  TimeOfDay,
+  TyreCompound,
+  Weather,
+} from "@f1race/race-engine";
 
 export const PROTOCOL_VERSION = 1;
 
@@ -34,7 +43,14 @@ export type ClientMessage =
   // Player's click during the lights-out start sequence. `clientTimestamp` is UX-only and
   // never used for fairness — the server measures reaction against its own clock at receipt.
   // `sequenceId` disambiguates which sequence the click targets (ignored if stale).
-  | { type: "startReaction"; clientTimestamp: number; sequenceId: number };
+  | { type: "startReaction"; clientTimestamp: number; sequenceId: number }
+  // Activate "hammer time" boost for the connection's hero car during the race stage.
+  // Engine cooldown is the real gate; a small per-connection rate limit guards spam.
+  | { type: "hammerTime" }
+  // Pre-qualifying tyre pick: the player's INTENT for their hero's race starting compound.
+  // Sent during the `qualy`/`startSequence` stages; the server applies it when building the
+  // race grid (authoritative — the client never sets its own race start locally).
+  | { type: "setStartingTyre"; compound: TyreCompound };
 
 export interface RoomPlayer {
   driverId: string;
@@ -57,7 +73,19 @@ export interface DriverProfileSummary {
 }
 
 export type ServerMessage =
-  | { type: "welcome"; driverId: string; sessionToken: string; mode: RoomMode; profile?: DriverProfileSummary }
+  | {
+      type: "welcome";
+      driverId: string;
+      sessionToken: string;
+      mode: RoomMode;
+      profile?: DriverProfileSummary;
+      // Race forecast: the room picks track/weather/timeOfDay once at construction (and
+      // re-rolls on restart) so the lobby/qualy UI can render "Monza · Heavy Rain · Night"
+      // before the first race snapshot arrives (which also carries these fields).
+      track?: { id: string; name: string; country: string; lengthM: number; laps: number };
+      weather?: Weather;
+      timeOfDay?: TimeOfDay;
+    }
   | { type: "stage"; stage: Stage }
   | { type: "snapshot"; stage: Stage; snapshot: QualySnapshot | RaceSnapshot; heroId: string }
   | { type: "result"; result: RaceResult; heroId: string }
@@ -79,7 +107,15 @@ export type ServerMessage =
   // `sequenceId` increments per sequence (disambiguates restarts).
   | { type: "startSequence"; lightsOutAt: number; sequenceId: number }
   // Unicast to each player after the sequence resolves, so the client can show their time.
-  | { type: "startResult"; driverId: string; reactionSec: number; jumpStart: boolean }
+  // `category` is the UX label (perfect/good/slow/verySlow/jumpStart) derived from reactionSec
+  // and jumpStart via the engine's `startCategory` helper.
+  | {
+      type: "startResult";
+      driverId: string;
+      reactionSec: number;
+      jumpStart: boolean;
+      category: StartCategory;
+    }
   // Phase 4 lobby: sent to a queued player on enqueue and on each match tick while they wait.
   // `division` is the player's own division; `queuedPlayers` is how many humans are currently
   // waiting in that same division; `estimatedWaitSec` is a rough hint. The lobby→room
@@ -87,4 +123,4 @@ export type ServerMessage =
   | { type: "lobbyState"; division: Division; queuedPlayers: number; estimatedWaitSec: number }
   | { type: "error"; message: string };
 
-export type { PilotProfile, QualySnapshot, RaceResult, RaceSnapshot, TyreCompound };
+export type { PilotProfile, QualySnapshot, RaceResult, RaceSnapshot, TyreCompound, Weather, TimeOfDay, StartCategory };

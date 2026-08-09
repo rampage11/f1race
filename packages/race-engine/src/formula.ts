@@ -1,6 +1,6 @@
 import { CONFIG } from "./config.js";
 import { compoundPaceBonusSec, gripFor, tyrePacePenaltySec } from "./tyres.js";
-import type { Skills, Track, TyreState } from "./types.js";
+import type { Skills, Track, TyreState, Weather } from "./types.js";
 
 export function baseLapTime(track: Track): number {
   const raw = track.segments.reduce((t, seg) => t + seg.length / seg.targetSpeed, 0);
@@ -19,16 +19,20 @@ export interface PaceInputs {
   tyre: TyreState;
   t0: number;
   noise: number;
+  weather?: Weather;
+  towBonusSec?: number;
 }
 
 export function paceSpeedMultiplier(input: PaceInputs): number {
+  const weather = input.weather ?? "dry";
   const paceBonusSec = -CONFIG.pace.skillSecondsPerPoint * input.paceSkill;
   const fatigueSec = CONFIG.pace.fatiguePaceSecPerPoint * (10 - input.fitnessSkill) * Math.max(0, input.fatigue01);
   const tyrePenalty = tyrePacePenaltySec(input.tyre);
   const compoundPenalty = compoundPaceBonusSec(input.tyre.compound);
-  const totalBonus = paceBonusSec + fatigueSec + tyrePenalty + compoundPenalty;
+  const towBonusSec = input.towBonusSec ?? 0;
+  const totalBonus = paceBonusSec + fatigueSec + tyrePenalty + compoundPenalty - towBonusSec;
   const mult = speedMultFromLapBonus(totalBonus, input.t0);
-  const grip = gripFor(input.tyre);
+  const grip = gripFor(input.tyre, weather);
   return mult * grip * input.pushLevel * (1 + input.noise);
 }
 
@@ -48,19 +52,38 @@ export interface BattleInputs {
   overtakingScore: number;
   attackerAlreadyAhead: boolean;
   lapDelta: number;
+  weather?: Weather;
+  attackerDrsActive?: boolean;
+  attackerHammerActive?: boolean;
+  defenderHammerActive?: boolean;
+}
+
+function effectiveWeatherOf(w: Weather | undefined): "dry" | "lightRain" | "heavyRain" {
+  const v = w ?? "dry";
+  return v === "variable" ? "dry" : v;
 }
 
 export function passProbability(input: BattleInputs): number {
   const b = CONFIG.battle;
   const paceTerm = input.paceDeltaMs * b.paceDeltaWeight;
   const tyreTerm = input.tyreAdvantage * b.tyreAdvantageWeight;
+  const w = effectiveWeatherOf(input.weather);
+  const weatherMult = CONFIG.weather.overtakeMultiplier[w];
+  const hammerAtk = input.attackerHammerActive ? CONFIG.HAMMER_TIME.overtakeMultiplier : 1;
+  const drsMult = input.attackerDrsActive ? CONFIG.battle.drsPassMultiplier : 1;
+  const comboMult = weatherMult * hammerAtk * drsMult;
+
   if (input.lapDelta >= 1) {
     const bf = CONFIG.blueFlag;
     let p = bf.lappedBasePassProb + paceTerm + tyreTerm;
     p *= Math.pow(input.overtakingScore, b.overtakeDifficultyWeight);
+    p *= comboMult;
     return Math.max(bf.lappedProbFloor, Math.min(b.probCeil, p));
   }
-  const adTerm = (input.attackSkill - input.defenseSkill) * b.attackDefenseWeight;
+  const effDefense = input.defenderHammerActive
+    ? input.defenseSkill * CONFIG.HAMMER_TIME.defenseMultiplier
+    : input.defenseSkill;
+  const adTerm = (input.attackSkill - effDefense) * b.attackDefenseWeight;
   const trainTerm = input.trainSize * b.trainSizeWeight;
   let p =
     b.basePassProb +
@@ -69,6 +92,7 @@ export function passProbability(input: BattleInputs): number {
     tyreTerm -
     trainTerm;
   p *= Math.pow(input.overtakingScore, b.overtakeDifficultyWeight);
+  p *= comboMult;
   p = Math.max(b.probFloor, Math.min(b.probCeil, p));
   if (input.paceDeltaMs < b.minPaceDeltaForAttackMs) {
     p *= 0.1;
@@ -114,6 +138,16 @@ export function computeStartOutcome(reactionTimeSec: number, reactionSkill: numb
     bonusAccel,
     latePenaltySec,
   };
+}
+
+export type StartCategory = "perfect" | "good" | "slow" | "verySlow" | "jumpStart";
+
+export function startCategory(reactionSec: number, jumpStart: boolean): StartCategory {
+  if (jumpStart) return "jumpStart";
+  if (reactionSec < 0.15) return "perfect";
+  if (reactionSec < 0.35) return "good";
+  if (reactionSec < 0.60) return "slow";
+  return "verySlow";
 }
 
 export function fatigueFactor(currentLap: number, totalLaps: number): number {
@@ -185,7 +219,8 @@ export function divisionForRating(rating: number): "F4" | "F3" | "F2" | "F1" {
   return "F4";
 }
 
-export function trainingDurationSec(currentSkillLevel: number): number {
+export function trainingDurationSec(currentSkillLevel: number, driverLevel = 1): number {
   const t = CONFIG.training;
-  return Math.round(t.baseDurationSec * Math.pow(t.growthFactor, currentSkillLevel));
+  const discount = Math.min(t.levelDiscountMax, Math.max(0, driverLevel - 1) * t.levelDiscountPerLevel);
+  return Math.round(t.baseDurationSec * Math.pow(t.growthFactor, currentSkillLevel) * (1 - discount));
 }

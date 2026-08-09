@@ -1,0 +1,75 @@
+/* ============================================================
+   DESIGN TOKENS — single source of truth (@f1race/web)
+   Palette / typography / radius / shadow / easing.
+   Legacy vars in styles.css `:root` remap onto these.
+   ============================================================ */
+
+:root {
+  color-scheme: dark;
+
+  /* ---------- Backgrounds ---------- */
+  --bg-primary: #0a0a0f; /* all-screen background */
+  --bg-surface: #12121a; /* cards / panels */
+  --bg-elevated: #1a1a24; /* interactive / hover */
+
+  /* ---------- Borders ---------- */
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --border-active: rgba(255, 255, 255, 0.12);
+
+  /* ---------- Accents ---------- */
+  --accent-red: #ff2d55;
+  --accent-green: #00d26a;
+  --accent-orange: #ff9f0a;
+  --accent-blue: #0a84ff;
+  --accent-purple: #bf5af2;
+  --accent-gold: #ffd60a;
+
+  /* ---------- Text ---------- */
+  --text-primary: #ffffff;
+  --text-secondary: rgba(255, 255, 255, 0.6);
+  --text-tertiary: rgba(255, 255, 255, 0.38);
+
+  /* ---------- Tyre compound colors ---------- */
+  --tyre-soft: var(--accent-red);
+  --tyre-medium: var(--accent-orange);
+  --tyre-hard: #f1f5f9;
+  --tyre-intermediate: var(--accent-green);
+  --tyre-wet: var(--accent-blue);
+
+  /* ---------- Typography: families ---------- */
+  --font-display: "Rajdhani", sans-serif; /* display / headings */
+  --font-mono: "JetBrains Mono", monospace; /* telemetry / numbers */
+  --font-body: "Inter", sans-serif; /* body */
+
+  /* ---------- Typography: sizes ---------- */
+  --font-size-display: 48px; /* screen titles */
+  --font-size-subtitle: 24px; /* subtitles */
+  --font-size-body: 14px; /* body */
+  --font-size-micro: 11px; /* micro-text */
+
+  /* ---------- Typography: weights ---------- */
+  --font-weight-display: 700;
+  --font-weight-subtitle: 600;
+  --font-weight-body: 400;
+  --font-weight-mono: 500;
+
+  /* ---------- Typography: letter-spacing ---------- */
+  --tracking-display: -0.02em; /* titles (tight) */
+  --tracking-subtitle: 0.02em; /* subtitles */
+  --tracking-micro: 0.05em; /* micro-text (uppercased) */
+
+  /* ---------- Body line-height ---------- */
+  --line-height-body: 1.5;
+
+  /* ---------- Radius ---------- */
+  --radius-sm: 6px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+
+  /* ---------- Shadows ---------- */
+  --shadow-panel: 0 8px 32px rgba(0, 0, 0, 0.4);
+  --shadow-inset-hi: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+
+  /* ---------- Easing ---------- */
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+}

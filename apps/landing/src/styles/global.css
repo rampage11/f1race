@@ -76,6 +76,73 @@ h3 {
   font-feature-settings: "tnum";
 }
 
+.glass-panel {
+  background: rgba(18, 18, 26, 0.92);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid var(--c-border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.neon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  background: linear-gradient(135deg, var(--c-accent-red) 0%, #ff6b35 100%);
+  border: none;
+  border-radius: var(--radius-md);
+  padding: 16px 32px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 18px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #fff;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(255, 45, 85, 0.3), inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+  transition: all 0.2s var(--ease-accel);
+}
+.neon-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(255, 45, 85, 0.45), inset 0 0 0 1px rgba(255, 255, 255, 0.15);
+}
+.neon-button:active {
+  transform: translateY(0);
+}
+.neon-button:disabled {
+  background: #2a2a35;
+  color: rgba(255, 255, 255, 0.3);
+  box-shadow: none;
+  cursor: not-allowed;
+  transform: none;
+}
+
+@keyframes pulse-cta {
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow: 0 4px 16px rgba(255, 45, 85, 0.3), inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+  }
+  50% {
+    transform: scale(1.02);
+    box-shadow: 0 4px 16px rgba(255, 45, 85, 0.5), inset 0 0 0 1px rgba(255, 255, 255, 0.15);
+  }
+}
+
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;

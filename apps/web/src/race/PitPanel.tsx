@@ -3,7 +3,7 @@ import { estimateTyreLifespanLaps, redBullRing, CONFIG } from "@f1race/race-engi
 import type { SessionCar, SessionSnapshot } from "./useRaceSession";
 import { TYRE_COLORS, TYRE_LABEL } from "./colors";
 
-const COMPOUNDS: TyreCompound[] = ["soft", "medium", "hard"];
+const COMPOUNDS: TyreCompound[] = ["soft", "medium", "hard", "intermediate", "wet"];
 const LAP_KM = redBullRing().lengthM / 1000;
 const PIT_DELTA = redBullRing().pitLaneDelta;
 
@@ -31,37 +31,39 @@ export function PitPanel({
   const onCliff = (hero.tyreWear ?? 0) >= CONFIG.tyres[compound].cliff;
   const currentCompound = compound;
   return (
-    <section className="panel">
-      <h3>Пит-стоп</h3>
-      <div className="tyre-wear">
-        <span>
-          Резина: {TYRE_LABEL[compound]} · ≈ {lapsLeft(hero)} круг. до деградации
-        </span>
-        <div className={`bar ${onCliff ? "bar-cliff" : ""}`}>
+    <section className="glass-panel ds-pit">
+      <h3 className="ds-heading">Пит-стоп</h3>
+      <div className="ds-tyre-wear">
+        <div className="ds-tyre-wear-head">
+          <span className="ds-tyre-dot" style={{ background: TYRE_COLORS[compound] }} />
+          <span className="ds-tyre-wear-name">{TYRE_LABEL[compound]}</span>
+          <span>≈ {lapsLeft(hero)} круг. до деградации</span>
+        </div>
+        <div className={`ds-bar ${onCliff ? "ds-bar-cliff" : ""}`}>
           <div
-            className="fill"
-            style={{ width: `${Math.round((hero.tyreWear ?? 0) * 100)}%`, background: onCliff ? "#ef4444" : TYRE_COLORS[compound] }}
+            className="ds-bar-fill"
+            style={{ width: `${Math.round((hero.tyreWear ?? 0) * 100)}%`, background: onCliff ? "var(--accent-red)" : TYRE_COLORS[compound] }}
           />
         </div>
-        <small className={onCliff ? "warn-text" : ""}>
+        <small className={onCliff ? "warn-text" : "ds-muted"}>
           Износ {Math.round((hero.tyreWear ?? 0) * 100)}%{onCliff ? " — резина «поплыла», срочно питься!" : ""}
         </small>
       </div>
 
       {hero.inPits && (
-        <div className="pitting">В боксах… {(hero.pitTimer ?? 0).toFixed(1)} c</div>
+        <div className="ds-pit-active">В боксах… {(hero.pitTimer ?? 0).toFixed(1)} c</div>
       )}
       {hero.pitPending && !hero.inPits && (
-        <div className="pending">Заезд на следующем круге</div>
+        <div className="ds-pit-pending">Заезд на следующем круге</div>
       )}
 
-      <div className="tyre-buttons">
+      <div className="ds-tyre-buttons">
         {COMPOUNDS.map((c) => {
           const same = c === currentCompound;
           return (
             <button
               key={c}
-              className="tyre-btn"
+              className="ds-tyre-btn"
               disabled={disabled || same}
               title={same ? "Нельзя поставить тот же состав (правило Ф1)" : undefined}
               style={{ borderColor: TYRE_COLORS[c], opacity: same ? 0.35 : 1 }}
@@ -73,11 +75,11 @@ export function PitPanel({
           );
         })}
       </div>
-      <button className="cancel" disabled={!hero.pitPending || hero.inPits} onClick={onCancel}>
+      <button className="ds-pit-cancel" disabled={!hero.pitPending || hero.inPits} onClick={onCancel}>
         Отменить пит
       </button>
-      <p className="hint">
-        Пит-стоп стоит ~{PIT_DELTA} c. Обязательна смена состава (правило Ф1). Текущий состав ({TYRE_LABEL[currentCompound]}) недоступен.
+      <p className="ds-hint">
+        Пит-стоп стоит ~{PIT_DELTA} c. Обязательна смена состава (правило Ф1). Текущий состав ({TYRE_LABEL[currentCompound]}) недоступен. Inter/Wet — для дождя.
       </p>
     </section>
   );

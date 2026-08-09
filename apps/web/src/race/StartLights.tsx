@@ -1,7 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { StartCategory } from "@f1race/race-engine";
 import type { MyStartResult } from "./useRaceSession";
 
 const POST_BUFFER_MS = 5000;
+
+const CATEGORY_META: Record<StartCategory, { label: string; cls: string }> = {
+  perfect: { label: "PERFECT START", cls: "cat-perfect" },
+  good: { label: "GOOD START", cls: "cat-good" },
+  slow: { label: "SLOW START", cls: "cat-slow" },
+  verySlow: { label: "VERY SLOW", cls: "cat-slow" },
+  jumpStart: { label: "JUMP START", cls: "cat-jump" },
+};
 
 interface Props {
   lightsOutAt: number;
@@ -55,6 +64,8 @@ export function StartLights({ lightsOutAt, sequenceId, myStartResult, reacted, o
 
   const lightsOut = now >= lightsOutAt;
   const lit = [0, 1, 2, 3, 4].map((i) => !lightsOut && now >= seqStart + (i + 1) * 1000);
+  const cat = myStartResult?.category;
+  const catMeta = cat ? CATEGORY_META[cat] : null;
 
   return (
     <div
@@ -70,7 +81,13 @@ export function StartLights({ lightsOutAt, sequenceId, myStartResult, reacted, o
           ))}
         </div>
         <div className="lights-message">
-          {myStartResult ? (
+          {myStartResult && catMeta ? (
+            <>
+              <div className={`ds-start-banner ${catMeta.cls}`}>{catMeta.label}</div>
+              <div className={`ds-start-reaction ds-mono ${catMeta.cls}`}>{myStartResult.reactionSec.toFixed(3)} с</div>
+              {myStartResult.jumpStart && <div className="jump-warning">Фальстарт — штраф</div>}
+            </>
+          ) : myStartResult ? (
             <>
               <div className="reaction-time">{myStartResult.reactionSec.toFixed(3)} с</div>
               {myStartResult.jumpStart && <div className="jump-warning">Фальстарт — штраф</div>}

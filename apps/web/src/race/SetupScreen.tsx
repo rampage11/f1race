@@ -102,8 +102,8 @@ export function SetupScreen({
 
   return (
     <div className="setup">
-      <div className="setup-card">
-        <h1>Создание пилота</h1>
+      <div className="setup-card glass-panel">
+        <h1 className="ds-heading">Создание пилота</h1>
         <p className="sub">
           {isOnboarding
             ? "Создайте своего пилота — это разовое решение на весь аккаунт"

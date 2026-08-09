@@ -1,4 +1,5 @@
 import { CONFIG, RACE } from "./config.js";
+import { INTERLAGOS_DATA, MONZA_DATA, RED_BULL_DATA } from "./track-data.js";
 import type { PathPoint, Point2D, Track, TrackSegment } from "./types.js";
 
 export function trackLengthM(track: Track): number {
@@ -50,15 +51,6 @@ export function overtakingScoreAround(track: Track, s: number): number {
   return 0.5 * a + 0.25 * prev + 0.25 * next;
 }
 
-function seg(
-  kind: TrackSegment["kind"],
-  length: number,
-  targetSpeed: number,
-  overtaking: number,
-): TrackSegment {
-  return { kind, length, targetSpeed, overtaking };
-}
-
 export function pathCumulative(path: Point2D[]): number[] {
   const cum: number[] = [0];
   for (let i = 0; i < path.length; i++) {
@@ -98,47 +90,74 @@ export function pathBounds(path: Point2D[]): { minX: number; minY: number; maxX:
 }
 
 export function redBullRing(): Track {
-  const SCALE = 1.7;
-  const raw: TrackSegment[] = [
-    seg("straight", 1100, 85, 1.0),
-    seg("corner", 100, 35, 0.8),
-    seg("straight", 380, 78, 0.3),
-    seg("corner", 80, 35, 0.5),
-    seg("corner", 90, 42, 0.2),
-    seg("straight", 450, 75, 0.4),
-    seg("corner", 80, 38, 0.2),
-    seg("straight", 1100, 88, 1.0),
-    seg("corner", 110, 35, 0.7),
-    seg("corner", 100, 45, 0.3),
-    seg("corner", 90, 40, 0.2),
-    seg("straight", 518, 72, 0.5),
-  ];
-  const segments = raw.map((s) => ({ ...s, length: Math.round(s.length * SCALE) }));
-  const length = segments.reduce((s, x) => s + x.length, 0);
-  const path2D: Point2D[] = [
-    { x: 120, y: 700 },
-    { x: 760, y: 760 },
-    { x: 860, y: 710 },
-    { x: 870, y: 620 },
-    { x: 800, y: 560 },
-    { x: 720, y: 520 },
-    { x: 680, y: 460 },
-    { x: 320, y: 420 },
-    { x: 230, y: 470 },
-    { x: 170, y: 540 },
-    { x: 160, y: 620 },
-  ];
+  const length = RED_BULL_DATA.lengthM;
   return {
     id: "red_bull_ring",
     name: "Red Bull Ring",
     country: "AT",
     lengthM: length,
-    segments,
-    path2D,
+    segments: RED_BULL_DATA.segments,
+    path2D: RED_BULL_DATA.path2D,
     pitLaneDelta: 25,
     pitStopDuration: 3.0,
     pitEntryS: Math.round(length * 0.97),
     pitExitS: Math.round(length * 0.03),
     laps: 12,
+    drsZones: RED_BULL_DATA.drsZones,
+    sectors: RED_BULL_DATA.sectors,
   };
+}
+
+export function monza(): Track {
+  const length = MONZA_DATA.lengthM;
+  return {
+    id: "monza",
+    name: "Monza",
+    country: "IT",
+    lengthM: length,
+    segments: MONZA_DATA.segments,
+    path2D: MONZA_DATA.path2D,
+    pitLaneDelta: 24,
+    pitStopDuration: 3.0,
+    pitEntryS: Math.round(length * 0.97),
+    pitExitS: Math.round(length * 0.03),
+    laps: 9,
+    drsZones: MONZA_DATA.drsZones,
+    sectors: MONZA_DATA.sectors,
+  };
+}
+
+export function interlagos(): Track {
+  const length = INTERLAGOS_DATA.lengthM;
+  return {
+    id: "interlagos",
+    name: "Autódromo José Carlos Pace",
+    country: "BR",
+    lengthM: length,
+    segments: INTERLAGOS_DATA.segments,
+    path2D: INTERLAGOS_DATA.path2D,
+    pitLaneDelta: 23,
+    pitStopDuration: 3.0,
+    pitEntryS: Math.round(length * 0.97),
+    pitExitS: Math.round(length * 0.03),
+    laps: 12,
+    drsZones: INTERLAGOS_DATA.drsZones,
+    sectors: INTERLAGOS_DATA.sectors,
+  };
+}
+
+export const TRACKS: Track[] = [redBullRing(), monza(), interlagos()];
+
+export const TRACK_FACTORIES: ReadonlyArray<() => Track> = [
+  redBullRing,
+  monza,
+  interlagos,
+];
+
+export function randomTrack(rng: { pick: <T>(arr: readonly T[]) => T }): Track {
+  return rng.pick(TRACKS);
+}
+
+export function trackById(id: string): Track | undefined {
+  return TRACKS.find((t) => t.id === id);
 }

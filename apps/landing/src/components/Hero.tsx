@@ -20,7 +20,9 @@ export function Hero() {
 
       <div className={`container ${styles.body}`}>
         <div className={styles.content}>
-          <h1 className={styles.title}>Гонка, которую считает сервер, не сценарист</h1>
+          <h1 className={styles.title}>
+            Гонка, которую считает <span className={styles.highlight}>сервер</span>, не сценарист
+          </h1>
           <p className={styles.subtitle}>
             Торможение по факту дистанции, износ резины, обгоны по вероятностной модели — каждый
             круг считает сервер.

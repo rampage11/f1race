@@ -2,9 +2,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { SkillKey } from "@f1race/race-engine";
 import { ABSOLUTE_SKILL_MAX } from "@f1race/race-engine";
 import type { DriverProfileSummary } from "./identity";
-import { skillLabel } from "./skills";
+import { skillLabel, skillMeta, tyreMgmtEffectiveCap } from "./skills";
 import { cancelTraining, fetchTrainingState, startTraining } from "./api";
 import type { TrainingCallResult, TrainingStateDto, TrainingStateResponse } from "./api";
+import { PilotStatsModal } from "./PilotStatsModal";
 import styles from "./HubScreen.module.css";
 
 export interface HubScreenProps {
@@ -62,6 +63,10 @@ function teamColorOf(team: string): string {
   return map[team] ?? "#9CA3AF";
 }
 
+function skillHint(key: SkillKey): string {
+  return skillMeta(key)?.hint ?? "";
+}
+
 export function HubScreen({ profile, onRace, onLogout }: HubScreenProps) {
   const [localProfile, setLocalProfile] = useState<DriverProfileSummary>(profile);
   const [training, setTraining] = useState<TrainingStateDto>({ status: "idle" });
@@ -70,7 +75,10 @@ export function HubScreen({ profile, onRace, onLogout }: HubScreenProps) {
   const [busy, setBusy] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [showStats, setShowStats] = useState<boolean>(false);
+  const [showMetaTip, setShowMetaTip] = useState<boolean>(false);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const tipRef = useRef<HTMLButtonElement>(null);
   const activeRef = useRef<boolean>(false);
   activeRef.current = training.status === "active";
 
@@ -128,6 +136,24 @@ export function HubScreen({ profile, onRace, onLogout }: HubScreenProps) {
     return () => clearInterval(id);
   }, [training.status, activeEndsAt, refresh]);
 
+  useEffect(() => {
+    if (!showMetaTip) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (tipRef.current && !tipRef.current.contains(e.target as Node)) {
+        setShowMetaTip(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setShowMetaTip(false);
+    };
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [showMetaTip]);
+
   const handleStart = useCallback(
     async (skill: SkillKey) => {
       setBusy(true);
@@ -171,17 +197,38 @@ export function HubScreen({ profile, onRace, onLogout }: HubScreenProps) {
         <div className={styles.hud}>
           <div className={styles.hudLeft}>
             <span className={styles.flag}>{flagEmoji(hero.country)}</span>
-            <div className={styles.hudId}>
+            <button
+              type="button"
+              className={styles.hudId}
+              onClick={() => setShowStats(true)}
+              aria-label="Открыть статы пилота"
+            >
               <strong className={styles.hudName}>{hero.name}</strong>
               <span className={styles.hudMeta}>
                 <span className={styles.teamDot} style={{ background: teamColorOf(hero.team) }} />
                 {hero.team}
               </span>
-            </div>
+              <span className={styles.statsHint}>статы →</span>
+            </button>
           </div>
           <div className={styles.hudRight}>
             <span className={styles.hudStat}>{localProfile.division} · {localProfile.driverRating}</span>
             <span className={styles.hudStat}>Ур. {localProfile.level}</span>
+            <button
+              ref={tipRef}
+              type="button"
+              className={styles.infoBtn}
+              onClick={() => setShowMetaTip((v) => !v)}
+              aria-label="Что значат уровень и рейтинг"
+              aria-expanded={showMetaTip}
+            >
+              i
+              {showMetaTip && (
+                <span className={styles.infoTip} role="tooltip">
+                  Уровень — ваша гоночная история (растёт от гонок). Рейтинг = уровень + бонус от навыков, именно он определяет дивизион. Уровень также снижает время тренировки до −20%.
+                </span>
+              )}
+            </button>
             <button className={styles.logout} onClick={onLogout}>Выйти</button>
           </div>
         </div>
@@ -192,7 +239,9 @@ export function HubScreen({ profile, onRace, onLogout }: HubScreenProps) {
           const isActive = isTraining && sk != null && activeSkill === sk;
           const value = sk != null ? skillValue(sk) : 0;
           const maxed = isTraining && value >= ABSOLUTE_SKILL_MAX;
+          const tyreCapped = isTraining && sk === "tyreMgmt" && value >= tyreMgmtEffectiveCap && value < ABSOLUTE_SKILL_MAX;
           const disabled = isTraining && (busy || (!!activeSkill && !isActive) || (maxed && !isActive));
+          const hint = isTraining && sk ? skillHint(sk) : "";
           const onClick = () => {
             if (b.role === "race") {
               onRace();
@@ -214,6 +263,7 @@ export function HubScreen({ profile, onRace, onLogout }: HubScreenProps) {
               style={{ left: `${b.x}%`, top: `${b.y}%`, width: `${b.w}%`, height: `${b.h}%` }}
               disabled={isTraining && disabled}
               aria-label={isTraining ? `${b.name} — ${skillLabel(sk!)} ${value}/${ABSOLUTE_SKILL_MAX}` : "Гонка"}
+              title={isTraining && hint ? `${skillLabel(sk!)} (${value}/${ABSOLUTE_SKILL_MAX}): ${hint}` : undefined}
               onClick={onClick}
             >
               <img className={styles.buildingImg} src={b.img} alt="" draggable={false} />
@@ -226,9 +276,13 @@ export function HubScreen({ profile, onRace, onLogout }: HubScreenProps) {
                   <>
                     <span className={styles.badgeName}>{b.name}</span>
                     <span className={styles.badgeVal}>{value}/{ABSOLUTE_SKILL_MAX}</span>
+                    {tyreCapped && <span className={styles.capDot} title="Эффективный потолок на 15">◆</span>}
                   </>
                 )}
               </span>
+              {isTraining && hint && (
+                <span className={styles.buildingHint}>{hint}</span>
+              )}
               {isActive && (
                 <span className={styles.timer} aria-live="polite">
                   {fmtRemaining(remaining)}
@@ -239,6 +293,7 @@ export function HubScreen({ profile, onRace, onLogout }: HubScreenProps) {
           );
         })}
       </div>
+      {showStats && <PilotStatsModal profile={localProfile} onClose={() => setShowStats(false)} />}
     </div>
   );
 }

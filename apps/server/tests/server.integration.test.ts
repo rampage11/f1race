@@ -128,6 +128,25 @@ describe("WS protocol: handshake & errors", () => {
     expect(err.message).toMatch(/invalid json/i);
   });
 
+  it("rejects a second live session with the same guestId (one account, two devices)", async () => {
+    const guestId = `dup-session-${Date.now()}`;
+    // First device: hello → matched into a room → welcome (live connection established).
+    const wsA = await connectClient(handle!.port);
+    const streamA = new MsgStream(wsA);
+    send(wsA, { type: "hello", protocolVersion: PROTOCOL_VERSION, hero: HERO, guestId });
+    await streamA.waitForType("welcome");
+
+    // Second device, SAME guestId → must be rejected, not welcomed.
+    const wsB = await connectClient(handle!.port);
+    const streamB = new MsgStream(wsB);
+    send(wsB, { type: "hello", protocolVersion: PROTOCOL_VERSION, hero: HERO_B, guestId });
+    const err = await streamB.waitForType("error");
+    expect(err.message).toMatch(/already in a race/i);
+
+    await closeClient(wsA);
+    await closeClient(wsB);
+  });
+
   it("snapshot stream is periodic (>=3 monotonic snapshots within 1.5s)", async () => {
     send(ws, { type: "hello", protocolVersion: PROTOCOL_VERSION, hero: HERO });
     await stream.waitForType("stage");

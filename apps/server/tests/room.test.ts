@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { WebSocket } from "ws";
-import type { PilotProfile } from "@f1race/race-engine";
+import { TRACKS, type PilotProfile } from "@f1race/race-engine";
 import { PROTOCOL_VERSION } from "../src/protocol.js";
 import type { ServerMessage } from "../src/protocol.js";
 import { Room, type RoomSink } from "../src/room.js";
@@ -12,6 +12,11 @@ import {
   START_SEQUENCE_DELAY_MS,
 } from "../src/start-sequence.js";
 import { closeClient, connectClient, launchServer, MsgStream, send } from "./helpers.js";
+
+const TRACK_IDS = TRACKS.map((t) => t.id);
+const WEATHER_VALUES = ["dry", "lightRain", "heavyRain", "variable"] as const;
+const TOD_VALUES = ["day", "sunset", "night"] as const;
+const START_CATEGORIES = ["perfect", "good", "slow", "verySlow", "jumpStart"] as const;
 
 const HERO_A: PilotProfile = {
   name: "Hero Alpha",
@@ -464,6 +469,229 @@ describe("Room (unit): lights-out start sequence (spec P2 / Phase 2)", () => {
       expect(s).not.toBe(START_LATE_REACTION_SEC);
       expect(s).toBeGreaterThan(0);
     }
+    room.stop();
+  });
+});
+
+describe("Room (unit): race forecast — track / weather / timeOfDay", () => {
+  function makeSink(): RoomSink & { messages: ServerMessage[] } {
+    const messages: ServerMessage[] = [];
+    return { messages, send: (m) => messages.push(m), isOpen: () => true };
+  }
+
+  it("welcome includes track (one of TRACKS) / weather / timeOfDay", () => {
+    const room = new Room();
+    const sink = makeSink();
+    room.addConnection("conn-a", sink, HERO_A);
+    const welcome = sink.messages.find((m) => m.type === "welcome") as
+      | {
+          type: "welcome";
+          track?: { id: string; name: string; country: string; lengthM: number; laps: number };
+          weather?: string;
+          timeOfDay?: string;
+        }
+      | undefined;
+    expect(welcome).toBeDefined();
+    expect(welcome!.track).toBeDefined();
+    expect(TRACK_IDS).toContain(welcome!.track!.id);
+    expect(typeof welcome!.track!.name).toBe("string");
+    expect(typeof welcome!.track!.country).toBe("string");
+    expect(typeof welcome!.track!.lengthM).toBe("number");
+    expect(welcome!.track!.laps).toBeGreaterThan(0);
+    expect(WEATHER_VALUES).toContain(welcome!.weather);
+    expect(TOD_VALUES).toContain(welcome!.timeOfDay);
+    room.stop();
+  });
+
+  it("welcome forecast is also sent on reconnect", () => {
+    const room = new Room();
+    const sink = makeSink();
+    room.addConnection("conn-a", sink, HERO_A);
+    const welcome1 = sink.messages.find((m) => m.type === "welcome") as
+      | { type: "welcome"; sessionToken: string }
+      | undefined;
+    const token = welcome1!.sessionToken;
+    room.removeConnection("conn-a");
+
+    const sink2 = makeSink();
+    const result = room.reconnect("conn-b", token, sink2);
+    expect(result.ok).toBe(true);
+    const welcome2 = sink2.messages.find((m) => m.type === "welcome") as
+      | {
+          type: "welcome";
+          track?: { id: string };
+          weather?: string;
+          timeOfDay?: string;
+        }
+      | undefined;
+    expect(welcome2).toBeDefined();
+    expect(welcome2!.track).toBeDefined();
+    expect(TRACK_IDS).toContain(welcome2!.track!.id);
+    expect(WEATHER_VALUES).toContain(welcome2!.weather);
+    expect(TOD_VALUES).toContain(welcome2!.timeOfDay);
+    room.stop();
+  });
+});
+
+describe("Room (unit): hammer time (engine integration)", () => {
+  function makeSink(): RoomSink & { messages: ServerMessage[] } {
+    const messages: ServerMessage[] = [];
+    return { messages, send: (m) => messages.push(m), isOpen: () => true };
+  }
+
+  it("rejects hammerTime before race stage (qualy → 'hammer not available now')", () => {
+    const room = new Room();
+    const sink = makeSink();
+    room.addConnection("conn-a", sink, HERO_A);
+    expect(room.currentStage).toBe("qualy");
+    const err = room.requestHammer("conn-a");
+    expect(err).toMatch(/hammer not available now/);
+    room.stop();
+  });
+
+  it("hammerTime is first-lap locked at race start ('hammer time locked on lap 1')", () => {
+    const room = new Room();
+    const sink = makeSink();
+    room.addConnection("conn-a", sink, HERO_A);
+    room.__advanceForTest({ stopAtRace: true });
+    expect(room.currentStage).toBe("race");
+    const err = room.requestHammer("conn-a");
+    expect(err).toMatch(/hammer time locked on lap 1/);
+    room.stop();
+  });
+
+  it("activates hammerTime past lap 1 (snapshot hammerTime.active === true; second immediate call is rate-limited)", () => {
+    const room = new Room();
+    const sink = makeSink();
+    const driverId = room.addConnection("conn-a", sink, HERO_A);
+    room.__advanceForTest({ stopAtRace: true });
+    // Release the first-lap lock: step until the hero completes lap 1 (car.lap >= 2).
+    room.__stepUntilLapForTest(driverId, 2);
+
+    const err1 = room.requestHammer("conn-a");
+    expect(err1).toBeNull();
+    room.__emitSnapshotForTest();
+
+    const raceSnap = [...sink.messages]
+      .reverse()
+      .find((m) => m.type === "snapshot" && (m as { stage?: string }).stage === "race") as
+      | { snapshot: { cars: { driverId: string; hammerTime: { active: boolean } }[] } }
+      | undefined;
+    expect(raceSnap).toBeDefined();
+    const hero = raceSnap!.snapshot.cars.find((c) => c.driverId === driverId);
+    expect(hero).toBeDefined();
+    expect(hero!.hammerTime.active).toBe(true);
+
+    // Second call within the 300ms rate-limit window → rate-limited (not cooldown).
+    const err2 = room.requestHammer("conn-a");
+    expect(err2).toMatch(/rate limit: hammerTime/);
+    room.stop();
+  });
+
+  it("after the rate-limit window passes, a second hammerTime is rejected as cooldown", async () => {
+    const room = new Room();
+    const sink = makeSink();
+    const driverId = room.addConnection("conn-a", sink, HERO_A);
+    room.__advanceForTest({ stopAtRace: true });
+    room.__stepUntilLapForTest(driverId, 2);
+
+    expect(room.requestHammer("conn-a")).toBeNull();
+    // Wait past the 300ms rate limit; the engine cooldown (30s sim-time) is unaffected by
+    // wall-clock waiting, so the next call must hit "rejected_cooldown".
+    await new Promise((r) => setTimeout(r, 350));
+    const err = room.requestHammer("conn-a");
+    expect(err).toMatch(/hammer time on cooldown/);
+    room.stop();
+  });
+});
+
+describe("Room (unit): startResult carries a category (engine startCategory)", () => {
+  function makeSink(): RoomSink & { messages: ServerMessage[] } {
+    const messages: ServerMessage[] = [];
+    return { messages, send: (m) => messages.push(m), isOpen: () => true };
+  }
+
+  it("a normal post-lights-out reaction yields a startResult.category (one of the 5 enums)", () => {
+    const room = new Room();
+    const sink = makeSink();
+    room.addConnection("conn-a", sink, HERO_A);
+    // Lights already out ~400ms ago → a near-immediate click is a legit ~0.4s reaction.
+    room.beginStartSequenceForTest({ delayMs: -400 });
+    const seq = sink.messages.find((m) => m.type === "startSequence") as
+      | { type: "startSequence"; sequenceId: number }
+      | undefined;
+    room.recordStartReaction("conn-a", Date.now(), seq!.sequenceId);
+
+    const res = sink.messages.find((m) => m.type === "startResult") as
+      | { type: "startResult"; category: string }
+      | undefined;
+    expect(res).toBeDefined();
+    expect(START_CATEGORIES).toContain(res!.category);
+    expect(res!.category).not.toBe("jumpStart");
+    room.stop();
+  });
+
+  it("a jump start (click before lights out) yields startResult.category === 'jumpStart'", () => {
+    const room = new Room();
+    const sink = makeSink();
+    room.addConnection("conn-a", sink, HERO_A);
+    room.beginStartSequenceForTest(); // lightsOutAt ~6s in the future
+    const seq = sink.messages.find((m) => m.type === "startSequence") as
+      | { type: "startSequence"; sequenceId: number }
+      | undefined;
+    // Immediate click = jump start.
+    room.recordStartReaction("conn-a", Date.now(), seq!.sequenceId);
+
+    const res = sink.messages.find((m) => m.type === "startResult") as
+      | { type: "startResult"; category: string; jumpStart: boolean }
+      | undefined;
+    expect(res).toBeDefined();
+    expect(res!.jumpStart).toBe(true);
+    expect(res!.category).toBe("jumpStart");
+    room.stop();
+  });
+});
+
+describe("Room (unit): pre-qualifying tyre selection (setStartingTyre)", () => {
+  function makeSink(): RoomSink & { messages: ServerMessage[] } {
+    const messages: ServerMessage[] = [];
+    return { messages, send: (m) => messages.push(m), isOpen: () => true };
+  }
+
+  it("a setStartingTyre during qualy overrides the hero driver's startingTyre on the race grid", () => {
+    const room = new Room();
+    const sink = makeSink();
+    const driverId = room.addConnection("conn-a", sink, HERO_A);
+    expect(room.currentStage).toBe("qualy");
+    expect(HERO_A.startingTyre).toBe("medium");
+
+    const err = room.requestSetStartingTyre("conn-a", "hard");
+    expect(err).toBeNull();
+
+    room.__advanceForTest({ stopAtRace: true });
+    expect(room.currentStage).toBe("race");
+    expect(room.testGetDriverStartingTyre(driverId)).toBe("hard");
+    room.stop();
+  });
+
+  it("rejects setStartingTyre during the race stage ('tyre can only be chosen before the race')", () => {
+    const room = new Room();
+    const sink = makeSink();
+    room.addConnection("conn-a", sink, HERO_A);
+    room.__advanceForTest({ stopAtRace: true });
+    expect(room.currentStage).toBe("race");
+
+    const err = room.requestSetStartingTyre("conn-a", "soft");
+    expect(err).toMatch(/tyre can only be chosen before the race/);
+    room.stop();
+  });
+
+  it("without a choice the hero driver keeps the profile startingTyre on the grid", () => {
+    const room = new Room();
+    const sink = makeSink();
+    const driverId = room.addConnection("conn-a", sink, HERO_A);
+    room.__advanceForTest({ stopAtRace: true });
+    expect(room.testGetDriverStartingTyre(driverId)).toBe(HERO_A.startingTyre);
     room.stop();
   });
 });
