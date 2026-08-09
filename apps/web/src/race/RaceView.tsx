@@ -36,8 +36,8 @@ const WEATHER_LABEL: Record<Weather, string> = {
   dry: "Сухо", lightRain: "Малый дождь", heavyRain: "Ливень", variable: "Перемен.",
 };
 
-export function RaceView({ hero, guestId, onChangeDriver }: { hero: PilotProfile; guestId: string; onChangeDriver: () => void }) {
-  const s = useRaceSession(hero, guestId);
+export function RaceView({ hero, guestId, onChangeDriver, tutorial }: { hero: PilotProfile; guestId: string; onChangeDriver: () => void; tutorial?: boolean }) {
+  const s = useRaceSession(hero, guestId, tutorial ? "tutorial" : "race");
   const snap = s.snapshot;
   const heroCar = snap?.cars.find((c) => c.driverId === s.heroId) ?? null;
   const isQualy = s.stage === "qualy";
@@ -51,7 +51,12 @@ export function RaceView({ hero, guestId, onChangeDriver }: { hero: PilotProfile
   // paint, which let the bare track flash for one frame (ugly on mobile). Calling setState
   // during render is the documented React pattern; it re-renders synchronously without
   // committing the intermediate frame, and the guard (seenForRef) prevents any loop.
-  if (!s.inLobby && isQualy && tyreSelectSeenForRef.current !== s.driverId) {
+  //
+  // The driverId check is load-bearing: on the very first render (before the socket opens)
+  // stage defaults to "qualy" and inLobby is false, so without it the condition would fire and
+  // flash the tyre-select BEFORE the lobby search even starts. driverId is set only once the
+  // server sends `welcome` (i.e. a room was actually matched), which is the real trigger.
+  if (!s.inLobby && isQualy && s.driverId && tyreSelectSeenForRef.current !== s.driverId) {
     tyreSelectSeenForRef.current = s.driverId;
     setTyreSelectShown(true);
   }
@@ -150,6 +155,12 @@ export function RaceView({ hero, guestId, onChangeDriver }: { hero: PilotProfile
             <div className="error-toast" key={lastError.id}>{lastError.message}</div>
           )}
           <TrackCanvas snapshot={snap} heroId={s.heroId} trackId={trackId} weather={effWeather} timeOfDay={timeOfDay} />
+          {tutorial && s.tutorialStep && (
+            <div className={`tutorial-banner${s.tutorialStep.highlight ? ` tutorial-hl-${s.tutorialStep.highlight}` : ""}`}>
+              {s.tutorialStep.title && <strong>{s.tutorialStep.title}</strong>}
+              {s.tutorialStep.text && <span>{s.tutorialStep.text}</span>}
+            </div>
+          )}
           {isStartSequence && s.startSequence && (
             <StartLights
               lightsOutAt={s.startSequence.lightsOutAt}

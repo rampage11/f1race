@@ -67,6 +67,7 @@ export function profileSummaryFrom(p: DriverProfile): DriverProfileSummary {
     heroConfirmed: p.heroConfirmed,
     totalXp: p.totalXp,
     racesCount: p.racesCount,
+    tutorialCompleted: p.tutorialCompleted ?? true,
   };
 }
 

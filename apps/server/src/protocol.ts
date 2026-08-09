@@ -79,6 +79,9 @@ export interface DriverProfileSummary {
   heroConfirmed: boolean;
   totalXp: number;
   racesCount: number;
+  // False only for a brand-new confirmed profile that hasn't run the guided first race yet;
+  // the client gates the hub's race button on this (tutorial first, then the normal lobby flow).
+  tutorialCompleted: boolean;
 }
 
 export type ServerMessage =

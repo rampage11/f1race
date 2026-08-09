@@ -150,6 +150,44 @@
   gap: 10px;
 }
 .ds-telemetry .glass-panel { padding: 12px 14px; }
+
+/* ---------- Tutorial banner ---------- */
+.tutorial-banner {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 35;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: min(440px, 80vw);
+  padding: 10px 16px;
+  background: rgba(18, 18, 26, 0.92);
+  border: 1px solid var(--accent-green);
+  border-left-width: 4px;
+  border-radius: 10px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+  animation: tut-pop 0.2s var(--ease-standard);
+}
+.tutorial-banner strong {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: 0.02em;
+  color: var(--text-primary);
+}
+.tutorial-banner span {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+.tutorial-banner.tutorial-hl-pit { border-color: var(--accent-orange); }
+.tutorial-banner.tutorial-hl-hammer { border-color: var(--accent-red); }
+@keyframes tut-pop {
+  from { opacity: 0; transform: translate(-50%, -8px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
 .ds-tel-left { display: flex; flex-direction: column; gap: 6px; }
 .ds-tel-pos { font-size: 44px; font-weight: 700; line-height: 1; color: var(--text-primary); }
 .ds-tel-of { font-size: 18px; color: var(--text-secondary); font-weight: 400; }

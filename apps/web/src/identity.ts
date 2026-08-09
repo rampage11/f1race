@@ -19,6 +19,7 @@ export interface DriverProfileSummary {
   heroConfirmed: boolean;
   totalXp: number;
   racesCount: number;
+  tutorialCompleted: boolean;
 }
 
 function normalizeProfile(parsed: Partial<DriverProfileSummary>): DriverProfileSummary | null {
@@ -27,6 +28,9 @@ function normalizeProfile(parsed: Partial<DriverProfileSummary>): DriverProfileS
       ...parsed,
       driverRating: typeof parsed.driverRating === "number" ? parsed.driverRating : 0,
       heroConfirmed: typeof parsed.heroConfirmed === "boolean" ? parsed.heroConfirmed : false,
+      // Older cached/server profiles predate the field; treat absence as completed so existing
+      // players aren't forced through the tutorial.
+      tutorialCompleted: typeof parsed.tutorialCompleted === "boolean" ? parsed.tutorialCompleted : true,
     } as DriverProfileSummary;
   }
   return null;

@@ -188,6 +188,7 @@ function profileSummary(p: DriverProfile): {
   heroConfirmed: boolean;
   totalXp: number;
   racesCount: number;
+  tutorialCompleted: boolean;
 } {
   const level = levelFromXp(p.totalXp);
   const rating = driverRating(level, skillSum(p.hero.skills));
@@ -200,6 +201,7 @@ function profileSummary(p: DriverProfile): {
     heroConfirmed: p.heroConfirmed,
     totalXp: p.totalXp,
     racesCount: p.racesCount,
+    tutorialCompleted: p.tutorialCompleted ?? true,
   };
 }
 

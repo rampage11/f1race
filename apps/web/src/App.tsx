@@ -4,7 +4,7 @@ import { SetupScreen } from "./race/SetupScreen";
 import { RaceView } from "./race/RaceView";
 import { LandingScreen } from "./LandingScreen";
 import { HubScreen } from "./HubScreen";
-import { confirmHero } from "./api";
+import { confirmHero, fetchProfile } from "./api";
 import {
   beginYandexLogin,
   clearAuth,
@@ -25,7 +25,7 @@ type CallbackStatus =
   | { kind: "exchanging" }
   | { kind: "error"; message: string };
 
-type Screen = "landing" | "onboarding" | "hub" | "race";
+type Screen = "landing" | "onboarding" | "hub" | "race" | "tutorial";
 
 function deriveInitialScreen(p: DriverProfileSummary | null): Screen {
   if (!p) return "landing";
@@ -120,6 +120,8 @@ export default function App() {
   let active: Screen;
   if (screen === "race" && authProfile) {
     active = "race";
+  } else if (screen === "tutorial" && authProfile) {
+    active = "tutorial";
   } else if (!authProfile) {
     active = "landing";
   } else if (!authProfile.heroConfirmed) {
@@ -147,8 +149,28 @@ export default function App() {
       {active === "hub" && authProfile && (
         <HubScreen
           profile={authProfile}
-          onRace={() => setScreen("race")}
+          onRace={() => setScreen(authProfile.tutorialCompleted === false ? "tutorial" : "race")}
           onLogout={handleLogout}
+        />
+      )}
+      {active === "tutorial" && authProfile && (
+        <RaceView
+          hero={authProfile.hero}
+          guestId={guestId}
+          tutorial
+          onChangeDriver={async () => {
+            // The server flipped tutorialCompleted on finish; refresh from /auth/me so the hub
+            // re-routes to a normal race instead of looping back into the tutorial (getAuthProfile
+            // alone would return the stale cached profile).
+            const fresh = await fetchProfile();
+            if (fresh) {
+              setAuthProfile(fresh);
+              setAuthProfileState(fresh);
+            } else {
+              setAuthProfileState(getAuthProfile());
+            }
+            setScreen("hub");
+          }}
         />
       )}
       {active === "race" && authProfile && (

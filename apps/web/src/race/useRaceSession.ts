@@ -232,6 +232,7 @@ export interface SessionControls {
   profile: DriverProfileSummary | null;
   lastProgression: RaceProgression | null;
   forecast: SessionForecast | null;
+  tutorialStep: { step: string; title?: string; text?: string; highlight?: "pit" | "hammer" | null } | null;
   setSpeed: (n: number) => void;
   setPaused: (b: boolean) => void;
   requestPit: (compound: TyreCompound) => void;
@@ -242,7 +243,7 @@ export interface SessionControls {
   setStartingTyre: (compound: TyreCompound) => void;
 }
 
-export function useRaceSession(hero: PilotProfile, guestId: string): SessionControls {
+export function useRaceSession(hero: PilotProfile, guestId: string, connMode: "race" | "tutorial" = "race"): SessionControls {
   const [connectionState, setConnectionState] = useState<ConnectionState>("disconnected");
   const [stage, setStage] = useState<Stage>("qualy");
   const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(null);
@@ -261,6 +262,7 @@ export function useRaceSession(hero: PilotProfile, guestId: string): SessionCont
   const [lobby, setLobby] = useState<LobbyState | null>(null);
   const [lobbyWaiting, setLobbyWaiting] = useState(false);
   const [forecast, setForecast] = useState<SessionForecast | null>(null);
+  const [tutorialStep, setTutorialStep] = useState<SessionControls["tutorialStep"]>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
   const heroRef = useRef(hero);
@@ -330,7 +332,22 @@ export function useRaceSession(hero: PilotProfile, guestId: string): SessionCont
       if (authToken) payload.authToken = authToken;
       ws.send(JSON.stringify(payload));
     };
+    const sendStartTutorial = (ws: WebSocket) => {
+      const authToken = getAuthToken();
+      const payload: { type: "startTutorial"; hero: PilotProfile; guestId: string; authToken?: string } = {
+        type: "startTutorial",
+        hero: heroRef.current,
+        guestId: guestIdRef.current,
+      };
+      if (authToken) payload.authToken = authToken;
+      ws.send(JSON.stringify(payload));
+    };
     const sendReconnectOrHello = (ws: WebSocket) => {
+      // Tutorial is a fresh one-shot session — no reconnect, no lobby. Always (re)send startTutorial.
+      if (connMode === "tutorial") {
+        sendStartTutorial(ws);
+        return;
+      }
       const token = tokenRef.current;
       if (!token) {
         sendHello(ws);
@@ -385,6 +402,11 @@ export function useRaceSession(hero: PilotProfile, guestId: string): SessionCont
           return;
         }
         switch (msg.type) {
+          case "tutorialStep": {
+            const m = msg as unknown as { step: string; title?: string; text?: string; highlight?: "pit" | "hammer" | null };
+            setTutorialStep({ step: m.step, title: m.title, text: m.text, highlight: m.highlight });
+            break;
+          }
           case "lobbyState": {
             if (!lobbyWaitingRef.current) break;
             const m = msg as unknown as { division: Division; queuedPlayers: number; estimatedWaitSec: number };
@@ -599,6 +621,7 @@ export function useRaceSession(hero: PilotProfile, guestId: string): SessionCont
       profile,
       lastProgression,
       forecast,
+      tutorialStep,
       setSpeed,
       setPaused,
       requestPit,
@@ -629,6 +652,7 @@ export function useRaceSession(hero: PilotProfile, guestId: string): SessionCont
       profile,
       lastProgression,
       forecast,
+      tutorialStep,
       setSpeed,
       setPaused,
       requestPit,
