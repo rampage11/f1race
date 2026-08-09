@@ -302,8 +302,8 @@ describe("/api/training/state: lazy completion of an elapsed training", () => {
 });
 
 describe("/api/profile/respec", () => {
-  // totalXp >= 1703 → level 5 (cumulative xpToNext: 100+283+520+800).
-  const LEVEL5_XP = 1800;
+  // totalXp for level 10 under the xpToNext curve (100*level^1.3 cumulative 1..9 ≈ 7693).
+  const LEVEL10_XP = 7800;
   const RESPECED: Skills = { fitness: 3, reaction: 1, attack: 2, defense: 2, pace: 1, tyreMgmt: 1 };
 
   it("returns 401 with no bearer token", async () => {
@@ -316,7 +316,7 @@ describe("/api/profile/respec", () => {
   });
 
   it("returns 403 for an unconfirmed profile", async () => {
-    seedAtXp("api-respec-unconf", LEVEL5_XP, false);
+    seedAtXp("api-respec-unconf", LEVEL10_XP, false);
     const resp = await fetch(`${base()}/api/profile/respec`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders("api-respec-unconf") },
@@ -325,7 +325,7 @@ describe("/api/profile/respec", () => {
     expect(resp.status).toBe(403);
   });
 
-  it("is locked below respec.freeLevel (level < 5 → 409 unlock message)", async () => {
+  it("is locked below respec.freeLevel (level < 10 → 409 unlock message)", async () => {
     seedAtXp("api-respec-lowlevel", 100);
     const resp = await fetch(`${base()}/api/profile/respec`, {
       method: "POST",
@@ -334,11 +334,11 @@ describe("/api/profile/respec", () => {
     });
     expect(resp.status).toBe(409);
     const data = (await resp.json()) as { error: string };
-    expect(data.error).toMatch(/unlocks at level 5/);
+    expect(data.error).toMatch(/unlocks at level 10/);
   });
 
   it("rejects a non-point-neutral allocation (sum != current) with 400", async () => {
-    seedAtXp("api-respec-alloc", LEVEL5_XP);
+    seedAtXp("api-respec-alloc", LEVEL10_XP);
     const resp = await fetch(`${base()}/api/profile/respec`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders("api-respec-alloc") },
@@ -347,9 +347,9 @@ describe("/api/profile/respec", () => {
     expect(resp.status).toBe(400);
   });
 
-  it("grants one free respec at level 5, then gates the next by the cooldown (409)", async () => {
+  it("grants one free respec at level 10, then gates the next by the cooldown (409)", async () => {
     const gid = "api-respec-free";
-    seedAtXp(gid, LEVEL5_XP);
+    seedAtXp(gid, LEVEL10_XP);
     const ok = await fetch(`${base()}/api/profile/respec`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders(gid) },

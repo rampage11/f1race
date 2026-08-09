@@ -83,8 +83,11 @@ export function randomRng(): Rng {
 }
 
 export function makeBot(args: Partial<MakeDriverArgs>, rng: Rng): Driver {
+  const hasBudget = args.skillBudget != null;
   const baseBudget = args.skillBudget ?? STARTING_SKILL_POINTS;
-  const jitter = Math.round(rng.range(0, CONFIG.bots.jitterMax));
+  // Only the default path (no explicit budget) adds the random jitter; when a caller supplies
+  // a skillBudget it is treated as the exact total to distribute (the room bakes its own jitter).
+  const jitter = hasBudget ? 0 : Math.round(rng.range(0, CONFIG.bots.jitterMax));
   const skills: Skills = { ...emptySkills() };
   let remaining = baseBudget + jitter;
   while (remaining > 0) {

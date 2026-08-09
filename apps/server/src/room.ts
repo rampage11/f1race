@@ -5,8 +5,8 @@ import {
   RaceEngine,
   buildQualyConfig,
   buildRaceConfig,
-  botSkillBudgetForDivision,
   divisionForRating,
+  divisionIndex,
   driverRating,
   levelFromXp,
   makeBot,
@@ -18,6 +18,7 @@ import {
   skillSum,
   startCategory,
   xpForRace,
+  STARTING_SKILL_POINTS,
   type Driver,
   type HammerMode,
   type PilotProfile,
@@ -617,19 +618,23 @@ export class Room {
   private rebuildField(): void {
     const rng = mulberry32(this.seed);
     const drivers: Driver[] = [];
+    let playerMax = 0;
     for (const conn of this.connections.values()) {
       drivers.push(this.makeHumanDriver(conn.hero, conn.driverId));
+      playerMax = Math.max(playerMax, skillSum(conn.hero.skills));
     }
+    if (playerMax === 0) playerMax = STARTING_SKILL_POINTS;
     const division = this.botDivision();
-    const baseBudget = botSkillBudgetForDivision(division);
-    const eliteCount = Math.min(CONFIG.bots.eliteCount, FIELD_SIZE - drivers.length);
+    const divIdx = divisionIndex(division);
     let botIndex = 0;
     while (drivers.length < FIELD_SIZE) {
       const startingTyre = compoundForWeather(this.weather, rng);
-      const elite = botIndex < eliteCount;
-      const budget = elite
-        ? Math.round(baseBudget * CONFIG.bots.eliteMultiplier)
-        : baseBudget;
+      const jitter = Math.round(rng.range(-CONFIG.bots.jitterSpread, CONFIG.bots.jitterUp));
+      const rival = botIndex === 0;
+      const budget = Math.max(
+        STARTING_SKILL_POINTS,
+        playerMax + divIdx * CONFIG.bots.divIndexCoefficient + jitter + (rival ? CONFIG.bots.rivalBonus : 0),
+      );
       drivers.push(makeBot({ startingTyre, skillBudget: budget }, rng));
       botIndex++;
     }

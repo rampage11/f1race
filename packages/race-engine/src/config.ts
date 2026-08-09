@@ -152,7 +152,7 @@ export const CONFIG = {
   },
 
   level: {
-    xpToNext: (level: number): number => Math.round(100 * Math.pow(level, 1.5)),
+    xpToNext: (level: number): number => Math.round(100 * Math.pow(level, 1.3)),
   },
 
   // Two-factor pilot rating: rating = level + (skillSum - startingPoints) * skillWeight.
@@ -174,19 +174,25 @@ export const CONFIG = {
     growthFactor: 1.6,
     levelDiscountPerLevel: 0.01,
     levelDiscountMax: 0.20,
+    // Fast start: the first `fastLevels` trainings (0->1, 1->2, 2->3) take a flat ~10 min
+    // instead of 30 to hook new players; the geometric grind kicks in at level fastLevels.
+    fastBaseDurationSec: 10 * 60,
+    fastLevels: 3,
   },
 
   HAMMER_TIME: {
-    durationSec: 15,
+    durationSec: 8,
     cooldownSec: 45,
-    minTyreWearToActivate: 0.80,
+    minTyreWearToActivate: 0.60,
     firstLapLock: true,
     // Three strategic modes. The activating car picks one; the multipliers apply only while
     // its hammer window is open. `defense` > 1 makes that car HARDER to pass when attacked.
+    // Tuned as a short, punchy "ult" (~1-2 meaningful activations per race): high cornering
+    // and heavy tyre wear on push (the all-in pace mode), strong overtake on attack.
     mode: {
-      attack: { cornering: 1.05, overtake: 1.40, defense: 1.0,  tyreWear: 1.8 },
-      defend: { cornering: 1.10, overtake: 1.0,  defense: 1.50, tyreWear: 1.5 },
-      push:   { cornering: 1.20, overtake: 1.10, defense: 1.0,  tyreWear: 2.2 },
+      attack: { cornering: 1.08, overtake: 1.45, defense: 1.0,  tyreWear: 2.4 },
+      defend: { cornering: 1.12, overtake: 1.0,  defense: 1.50, tyreWear: 2.0 },
+      push:   { cornering: 1.30, overtake: 1.10, defense: 1.0,  tyreWear: 3.0 },
     },
   },
 
@@ -224,27 +230,27 @@ export const CONFIG = {
   // (with a dedicated RNG stream so the physics RNG is untouched) once per lap completion for
   // every car past minLap. Effective per-race chance for a ~12-lap race ≈ 0.5% per car.
   mechanicalFailure: {
-    basePerLap: 0.0005,
+    basePerLap: 0.001,
     minLap: 2,
   },
 
-  // Bot skill budget scales with the room's division so higher divisions field competitive
-  // bots (otherwise veterans farm static starter bots). budget = budgetBase + divisionRatingFloor ×
-  // budgetCoefficient, then +rand(0..jitterMax). The top `eliteCount` bots get ×eliteMultiplier
-  // to create "bosses" slightly above the lobby average.
+  // Bot skill budget is player-relative so a field always matches the lobby's actual strength:
+  // budget = maxHumanSkillSum + divIndex*divIndexCoefficient + rand(-jitterSpread..jitterSpread),
+  // and the first bot (the "rival") gets +rivalBonus to create a dragon to beat. divIndex:
+  // F4=0, F3=1, F2=2, F1=3, so higher divisions field stronger fields on top of the player match.
   bots: {
-    budgetBase: 10,
-    budgetCoefficient: 0.8,
+    divIndexCoefficient: 3,
+    jitterSpread: 5,
+    jitterUp: 8,
+    rivalBonus: 10,
     jitterMax: 5,
-    eliteCount: 3,
-    eliteMultiplier: 1.15,
   },
 
   // Skill respec: one free redistribution once the pilot reaches freeLevel (no currency yet);
   // afterwards a cooldownDays gate. Respec is point-neutral (the total skill sum is preserved,
   // only the distribution changes) so it can't be farmed for free points.
   respec: {
-    freeLevel: 5,
+    freeLevel: 10,
     cooldownDays: 30,
   },
 } as const;

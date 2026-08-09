@@ -221,25 +221,19 @@ export function divisionForRating(rating: number): "F4" | "F3" | "F2" | "F1" {
   return "F4";
 }
 
-// Lower rating bound of a division (F4 floor = 0). Used to scale bot skill budgets so a
-// room's bots match the division's expected driver strength.
-export function divisionRatingFloor(division: "F4" | "F3" | "F2" | "F1"): number {
-  const r = CONFIG.driverRating;
-  if (division === "F1") return r.f1RatingMin;
-  if (division === "F2") return r.f2RatingMin;
-  if (division === "F3") return r.f3RatingMin;
+export function divisionIndex(division: "F4" | "F3" | "F2" | "F1"): number {
+  if (division === "F1") return 3;
+  if (division === "F2") return 2;
+  if (division === "F3") return 1;
   return 0;
-}
-
-// Base skill-point budget for a bot filling a room in the given division (before jitter and
-// elite bump): budgetBase + divisionRatingFloor × budgetCoefficient.
-export function botSkillBudgetForDivision(division: "F4" | "F3" | "F2" | "F1"): number {
-  const b = CONFIG.bots;
-  return b.budgetBase + divisionRatingFloor(division) * b.budgetCoefficient;
 }
 
 export function trainingDurationSec(currentSkillLevel: number, driverLevel = 1): number {
   const t = CONFIG.training;
   const discount = Math.min(t.levelDiscountMax, Math.max(0, driverLevel - 1) * t.levelDiscountPerLevel);
-  return Math.round(t.baseDurationSec * Math.pow(t.growthFactor, currentSkillLevel) * (1 - discount));
+  const factor = 1 - discount;
+  if (currentSkillLevel < t.fastLevels) {
+    return Math.round(t.fastBaseDurationSec * factor);
+  }
+  return Math.round(t.baseDurationSec * Math.pow(t.growthFactor, currentSkillLevel) * factor);
 }

@@ -271,23 +271,35 @@ describe("driver rating (two-factor progression)", () => {
 });
 
 describe("training duration", () => {
-  it("base duration at level 0 equals config base", () => {
-    expect(trainingDurationSec(0)).toBe(CONFIG.training.baseDurationSec);
+  it("fast tier: the first `fastLevels` levels are a flat fast-base (new-player hook)", () => {
+    const fast = CONFIG.training.fastBaseDurationSec;
+    for (let lvl = 0; lvl < CONFIG.training.fastLevels; lvl++) {
+      expect(trainingDurationSec(lvl)).toBe(fast);
+    }
   });
 
-  it("grows geometrically with current skill level", () => {
+  it("normal tier: grows geometrically with current skill level from fastLevels onward", () => {
     const base = CONFIG.training.baseDurationSec;
     const g = CONFIG.training.growthFactor;
-    expect(trainingDurationSec(0)).toBe(base);
-    expect(trainingDurationSec(1)).toBe(Math.round(base * g));
-    expect(trainingDurationSec(5)).toBe(Math.round(base * Math.pow(g, 5)));
+    const start = CONFIG.training.fastLevels;
+    expect(trainingDurationSec(start)).toBe(Math.round(base * Math.pow(g, start)));
+    expect(trainingDurationSec(start + 2)).toBe(Math.round(base * Math.pow(g, start + 2)));
   });
 
-  it("is strictly increasing in level (diminishing returns via time)", () => {
+  it("the fast tier is much cheaper than the first normal-tier level (hook then grind)", () => {
+    expect(trainingDurationSec(CONFIG.training.fastLevels)).toBeGreaterThan(
+      trainingDurationSec(CONFIG.training.fastLevels - 1),
+    );
+  });
+
+  it("is non-decreasing, and strictly increasing from the normal tier onward", () => {
     let prev = 0;
     for (let lvl = 0; lvl <= 15; lvl++) {
       const d = trainingDurationSec(lvl);
-      expect(d).toBeGreaterThan(prev);
+      expect(d).toBeGreaterThanOrEqual(prev);
+      if (lvl >= CONFIG.training.fastLevels) {
+        expect(d).toBeGreaterThan(prev);
+      }
       prev = d;
     }
   });
