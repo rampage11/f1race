@@ -20,6 +20,7 @@ interface ProfileRow {
   heroConfirmed: number;
   freeRespecUsed: number;
   lastRespecAt: number | null;
+  tutorialCompleted: number;
   level: number;
   driverRating: number;
   division: string | null;
@@ -84,6 +85,7 @@ function toProfile(r: ProfileRow): DriverProfile {
     heroConfirmed: r.heroConfirmed !== 0,
     freeRespecUsed: r.freeRespecUsed !== 0,
     lastRespecAt: r.lastRespecAt,
+    tutorialCompleted: r.tutorialCompleted !== 0,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
   };
@@ -175,6 +177,11 @@ export class SqliteDriverProfileRepository implements DriverProfileRepository {
       this.db.exec("ALTER TABLE profiles ADD COLUMN driverRating INTEGER NOT NULL DEFAULT 0");
       this.db.exec("ALTER TABLE profiles ADD COLUMN division TEXT");
     }
+    // tutorialCompleted defaults to 1 so legacy/existing players skip the guided tutorial;
+    // only brand-new confirmed profiles start at 0 (set in their creation paths).
+    if (!cols.some((c) => c.name === "tutorialCompleted")) {
+      this.db.exec("ALTER TABLE profiles ADD COLUMN tutorialCompleted INTEGER NOT NULL DEFAULT 1");
+    }
     this.db.exec(
       "CREATE INDEX IF NOT EXISTS idx_profiles_division_rating ON profiles(division, driverRating DESC, totalXp DESC)",
     );
@@ -184,8 +191,8 @@ export class SqliteDriverProfileRepository implements DriverProfileRepository {
 
     this.stmtGet = this.db.prepare("SELECT * FROM profiles WHERE guestId = ?");
     this.stmtUpsert = this.db.prepare(`
-      INSERT INTO profiles (guestId, hero, totalXp, racesCount, heroConfirmed, freeRespecUsed, lastRespecAt, level, driverRating, division, createdAt, updatedAt)
-      VALUES (@guestId, @hero, @totalXp, @racesCount, @heroConfirmed, @freeRespecUsed, @lastRespecAt, @level, @driverRating, @division, @createdAt, @updatedAt)
+      INSERT INTO profiles (guestId, hero, totalXp, racesCount, heroConfirmed, freeRespecUsed, lastRespecAt, tutorialCompleted, level, driverRating, division, createdAt, updatedAt)
+      VALUES (@guestId, @hero, @totalXp, @racesCount, @heroConfirmed, @freeRespecUsed, @lastRespecAt, @tutorialCompleted, @level, @driverRating, @division, @createdAt, @updatedAt)
       ON CONFLICT(guestId) DO UPDATE SET
         hero = excluded.hero,
         totalXp = excluded.totalXp,
@@ -193,6 +200,7 @@ export class SqliteDriverProfileRepository implements DriverProfileRepository {
         heroConfirmed = excluded.heroConfirmed,
         freeRespecUsed = excluded.freeRespecUsed,
         lastRespecAt = excluded.lastRespecAt,
+        tutorialCompleted = excluded.tutorialCompleted,
         level = excluded.level,
         driverRating = excluded.driverRating,
         division = excluded.division,
@@ -271,6 +279,7 @@ export class SqliteDriverProfileRepository implements DriverProfileRepository {
       heroConfirmed: profile.heroConfirmed ? 1 : 0,
       freeRespecUsed: (profile.freeRespecUsed ?? false) ? 1 : 0,
       lastRespecAt: profile.lastRespecAt ?? null,
+      tutorialCompleted: (profile.tutorialCompleted ?? true) ? 1 : 0,
       level,
       driverRating: rating,
       division,
@@ -355,6 +364,13 @@ export class SqliteDriverProfileRepository implements DriverProfileRepository {
       }
     }
     return me ? { division, rows, me } : { division, rows };
+  }
+
+  markTutorialCompleted(profile: DriverProfile, xpBonus: number): void {
+    profile.tutorialCompleted = true;
+    profile.totalXp += xpBonus;
+    profile.updatedAt = Date.now();
+    this.upsert(profile);
   }
 
   close(): void {

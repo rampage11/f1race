@@ -53,7 +53,11 @@ export type ClientMessage =
   // Pre-qualifying tyre pick: the player's INTENT for their hero's race starting compound.
   // Sent during the `qualy`/`startSequence` stages; the server applies it when building the
   // race grid (authoritative — the client never sets its own race start locally).
-  | { type: "setStartingTyre"; compound: TyreCompound };
+  | { type: "setStartingTyre"; compound: TyreCompound }
+  // Request the guided first-race tutorial instead of the normal lobby flow. Sent right after
+  // `hello` by a client that sees `tutorialCompleted === false` on the loaded profile. The
+  // server builds a 2-lap solo room and streams tutorialStep hints over the snapshots.
+  | { type: "startTutorial" };
 
 export interface RoomPlayer {
   driverId: string;
@@ -118,6 +122,16 @@ export type ServerMessage =
       reactionSec: number;
       jumpStart: boolean;
       category: StartCategory;
+    }
+  // Tutorial: a server-pushed guided step over the race snapshot stream. The client renders a
+  // non-blocking overlay (title/text + an optional highlight ring around the pit or hammer
+  // control). `step` is a stable id (welcome/pit_hint/hammer_hint/finish) the client can key on.
+  | {
+      type: "tutorialStep";
+      step: string;
+      title?: string;
+      text?: string;
+      highlight?: "pit" | "hammer" | null;
     }
   // Phase 4 lobby: sent to a queued player on enqueue and on each match tick while they wait.
   // `division` is the player's own division; `queuedPlayers` is how many humans are currently

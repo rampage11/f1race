@@ -13,6 +13,10 @@ export interface DriverProfile {
   // timestamps the most recent respec for the cooldownDays gate.
   freeRespecUsed?: boolean;
   lastRespecAt?: number | null;
+  // First-race tutorial: undefined/true = done (legacy users skip); explicitly false on a brand-
+  // new confirmed profile means the guided tutorial is still pending and the race entry should
+  // route there instead of the normal lobby.
+  tutorialCompleted?: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -70,4 +74,6 @@ export interface DriverProfileRepository {
   // Top profiles in a division by driverRating (denormalized on every upsert). When
   // viewerGuestId is supplied, the viewer's own rank is computed and returned as `me`.
   leaderboard(division: Division, limit: number, viewerGuestId?: string): LeaderboardResult;
+  // Flip tutorialCompleted=true and award the one-time tutorial XP bonus in one transaction.
+  markTutorialCompleted(profile: DriverProfile, xpBonus: number): void;
 }
