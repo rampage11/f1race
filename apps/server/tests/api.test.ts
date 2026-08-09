@@ -77,6 +77,19 @@ function authHeaders(sub: string): Record<string, string> {
   return { Authorization: `Bearer ${token(sub)}` };
 }
 
+function seedAtXp(guestId: string, totalXp: number, confirmed = true): void {
+  const now = Date.now();
+  repo.upsert({
+    guestId,
+    hero: HERO_VALID,
+    totalXp,
+    racesCount: 0,
+    heroConfirmed: confirmed,
+    createdAt: now,
+    updatedAt: now,
+  });
+}
+
 const base = (): string => `http://127.0.0.1:${handle.port}`;
 
 describe("/api/profile/confirm", () => {
@@ -293,19 +306,6 @@ describe("/api/profile/respec", () => {
   const LEVEL5_XP = 1800;
   const RESPECED: Skills = { fitness: 3, reaction: 1, attack: 2, defense: 2, pace: 1, tyreMgmt: 1 };
 
-  function seedAt(guestId: string, totalXp: number, confirmed = true): void {
-    const now = Date.now();
-    repo.upsert({
-      guestId,
-      hero: HERO_VALID,
-      totalXp,
-      racesCount: 0,
-      heroConfirmed: confirmed,
-      createdAt: now,
-      updatedAt: now,
-    });
-  }
-
   it("returns 401 with no bearer token", async () => {
     const resp = await fetch(`${base()}/api/profile/respec`, {
       method: "POST",
@@ -316,7 +316,7 @@ describe("/api/profile/respec", () => {
   });
 
   it("returns 403 for an unconfirmed profile", async () => {
-    seedAt("api-respec-unconf", LEVEL5_XP, false);
+    seedAtXp("api-respec-unconf", LEVEL5_XP, false);
     const resp = await fetch(`${base()}/api/profile/respec`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders("api-respec-unconf") },
@@ -326,7 +326,7 @@ describe("/api/profile/respec", () => {
   });
 
   it("is locked below respec.freeLevel (level < 5 → 409 unlock message)", async () => {
-    seedAt("api-respec-lowlevel", 100);
+    seedAtXp("api-respec-lowlevel", 100);
     const resp = await fetch(`${base()}/api/profile/respec`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders("api-respec-lowlevel") },
@@ -338,7 +338,7 @@ describe("/api/profile/respec", () => {
   });
 
   it("rejects a non-point-neutral allocation (sum != current) with 400", async () => {
-    seedAt("api-respec-alloc", LEVEL5_XP);
+    seedAtXp("api-respec-alloc", LEVEL5_XP);
     const resp = await fetch(`${base()}/api/profile/respec`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders("api-respec-alloc") },
@@ -349,7 +349,7 @@ describe("/api/profile/respec", () => {
 
   it("grants one free respec at level 5, then gates the next by the cooldown (409)", async () => {
     const gid = "api-respec-free";
-    seedAt(gid, LEVEL5_XP);
+    seedAtXp(gid, LEVEL5_XP);
     const ok = await fetch(`${base()}/api/profile/respec`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders(gid) },
@@ -371,5 +371,56 @@ describe("/api/profile/respec", () => {
     expect(again.status).toBe(409);
     const againData = (await again.json()) as { error: string };
     expect(againData.error).toMatch(/available in/);
+  });
+});
+
+describe("/api/leaderboard", () => {
+  it("is public for anonymous viewers (200, rows, no `me`)", async () => {
+    seedAtXp("api-lb-anon", 100);
+    const resp = await fetch(`${base()}/api/leaderboard?division=F4`);
+    expect(resp.status).toBe(200);
+    const data = (await resp.json()) as {
+      rows: { guestId: string }[];
+      me?: { guestId: string };
+    };
+    expect(data.rows.length).toBeGreaterThan(0);
+    expect(data.me).toBeUndefined();
+  });
+
+  it("ranks confirmed profiles in a division by driverRating desc and reports the viewer's rank", async () => {
+    // Three F4 profiles (HERO_VALID sum=10 → rating === level; totalXp drives level).
+    const a = "api-lb-a";
+    const b = "api-lb-b";
+    const c = "api-lb-c";
+    seedAtXp(a, 0);     // level 1, rating 1
+    seedAtXp(b, 200);   // level 2, rating 2
+    seedAtXp(c, 500);   // level 3, rating 3
+    // An unconfirmed profile must NOT appear.
+    seedAtXp("api-lb-unconfirmed", 900, false);
+
+    const resp = await fetch(`${base()}/api/leaderboard?division=F4&limit=100`, {
+      headers: authHeaders(b), // viewer = b
+    });
+    expect(resp.status).toBe(200);
+    const data = (await resp.json()) as {
+      division: string;
+      rows: { rank: number; guestId: string; driverRating: number }[];
+      me?: { rank: number; guestId: string };
+    };
+    expect(data.division).toBe("F4");
+    // rows are sorted by driverRating desc (shared DB has other F4 profiles too).
+    for (let i = 1; i < data.rows.length; i++) {
+      expect(data.rows[i - 1]!.driverRating).toBeGreaterThanOrEqual(data.rows[i]!.driverRating);
+    }
+    // Our three must keep relative order c > b > a.
+    const rankOf = (gid: string) => data.rows.find((r) => r.guestId === gid)!.rank;
+    expect(rankOf(c)).toBeLessThan(rankOf(b));
+    expect(rankOf(b)).toBeLessThan(rankOf(a));
+    // The unconfirmed profile must be absent.
+    expect(data.rows.some((r) => r.guestId === "api-lb-unconfirmed")).toBe(false);
+    // Viewer's own entry matches their row rank.
+    expect(data.me).toBeDefined();
+    expect(data.me!.guestId).toBe(b);
+    expect(data.me!.rank).toBe(rankOf(b));
   });
 });

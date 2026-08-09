@@ -6,6 +6,7 @@ import { skillLabel, skillMeta, tyreMgmtEffectiveCap } from "./skills";
 import { cancelTraining, fetchTrainingState, startTraining } from "./api";
 import type { TrainingCallResult, TrainingStateDto, TrainingStateResponse } from "./api";
 import { PilotStatsModal } from "./PilotStatsModal";
+import { LeaderboardScreen } from "./LeaderboardScreen";
 import styles from "./HubScreen.module.css";
 
 export interface HubScreenProps {
@@ -76,6 +77,7 @@ export function HubScreen({ profile, onRace, onLogout }: HubScreenProps) {
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [showStats, setShowStats] = useState<boolean>(false);
+  const [showLeaderboard, setShowLeaderboard] = useState<boolean>(false);
   const [showMetaTip, setShowMetaTip] = useState<boolean>(false);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tipRef = useRef<HTMLButtonElement>(null);
@@ -212,7 +214,15 @@ export function HubScreen({ profile, onRace, onLogout }: HubScreenProps) {
             </button>
           </div>
           <div className={styles.hudRight}>
-            <span className={styles.hudStat}>{localProfile.division} · {localProfile.driverRating}</span>
+            <button
+              type="button"
+              className={styles.lbBtn}
+              onClick={() => setShowLeaderboard(true)}
+              aria-label="Открыть таблицу лидеров"
+              title="Таблица лидеров"
+            >
+              {localProfile.division} · {localProfile.driverRating}
+            </button>
             <span className={styles.hudStat}>Ур. {localProfile.level}</span>
             <button
               ref={tipRef}
@@ -299,6 +309,9 @@ export function HubScreen({ profile, onRace, onLogout }: HubScreenProps) {
           onClose={() => setShowStats(false)}
           onProfileChanged={setLocalProfile}
         />
+      )}
+      {showLeaderboard && (
+        <LeaderboardScreen profile={localProfile} onClose={() => setShowLeaderboard(false)} />
       )}
     </div>
   );

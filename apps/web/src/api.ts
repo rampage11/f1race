@@ -140,3 +140,35 @@ export async function respecSkills(skills: Skills): Promise<RespecResult> {
   if (!data?.profile) return { ok: false, error: "invalid response" };
   return { ok: true, profile: data.profile };
 }
+
+export interface LeaderboardRow {
+  rank: number;
+  guestId: string;
+  name: string;
+  team: string;
+  country: string;
+  level: number;
+  driverRating: number;
+  racesCount: number;
+}
+
+export interface LeaderboardResult {
+  division: string;
+  rows: LeaderboardRow[];
+  me?: LeaderboardRow;
+}
+
+export async function fetchLeaderboard(division: string, limit = 50): Promise<LeaderboardResult | null> {
+  const token = getAuthToken();
+  const headers: Record<string, string> = {};
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  try {
+    const res = await fetch(`${apiBaseUrl()}/api/leaderboard?division=${encodeURIComponent(division)}&limit=${limit}`, {
+      headers,
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as LeaderboardResult;
+  } catch {
+    return null;
+  }
+}

@@ -1,10 +1,13 @@
 import Database from "better-sqlite3";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import { ABSOLUTE_SKILL_MAX, clampSkill, type PilotProfile, type SkillKey } from "@f1race/race-engine";
+import { ABSOLUTE_SKILL_MAX, clampSkill, divisionForRating, driverRating, levelFromXp, skillSum, type PilotProfile, type SkillKey } from "@f1race/race-engine";
 import type {
+  Division,
   DriverProfile,
   DriverProfileRepository,
+  LeaderboardResult,
+  LeaderboardRow,
   RaceHistoryRow,
   TrainingJob,
 } from "./repository.js";
@@ -17,6 +20,9 @@ interface ProfileRow {
   heroConfirmed: number;
   freeRespecUsed: number;
   lastRespecAt: number | null;
+  level: number;
+  driverRating: number;
+  division: string | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -39,6 +45,34 @@ interface TrainingRow {
   startedAt: number;
   durationSec: number;
   completedAt: number | null;
+}
+
+interface LeaderboardQueryRow {
+  guestId: string;
+  hero: string;
+  totalXp: number;
+  racesCount: number;
+  level: number;
+  driverRating: number;
+}
+
+interface ViewerQueryRow extends LeaderboardQueryRow {
+  division: string | null;
+  heroConfirmed: number;
+}
+
+function toLeaderboardRow(r: LeaderboardQueryRow, rank: number): LeaderboardRow {
+  const hero = JSON.parse(r.hero) as PilotProfile;
+  return {
+    rank,
+    guestId: r.guestId,
+    name: hero.name,
+    team: hero.team,
+    country: hero.country,
+    level: r.level,
+    driverRating: r.driverRating,
+    racesCount: r.racesCount,
+  };
 }
 
 function toProfile(r: ProfileRow): DriverProfile {
@@ -77,6 +111,9 @@ export class SqliteDriverProfileRepository implements DriverProfileRepository {
   private stmtStartTraining: Database.Statement;
   private stmtGetTrainingById: Database.Statement;
   private stmtCancelTraining: Database.Statement;
+  private stmtLeaderboard: Database.Statement;
+  private stmtViewerRow: Database.Statement;
+  private stmtViewerRank: Database.Statement;
   private txCompleteTraining: (training: TrainingJob, profile: DriverProfile) => void;
 
   constructor(dbPath: string) {
@@ -130,14 +167,25 @@ export class SqliteDriverProfileRepository implements DriverProfileRepository {
     if (!cols.some((c) => c.name === "lastRespecAt")) {
       this.db.exec("ALTER TABLE profiles ADD COLUMN lastRespecAt INTEGER");
     }
+    // Denormalized ranking columns for the leaderboard (computed on every upsert so the
+    // top-N query can ORDER BY driverRating without re-deriving level/rating from the hero
+    // JSON + totalXp in SQL). Existing rows default to 0/NULL and populate on next play.
+    if (!cols.some((c) => c.name === "driverRating")) {
+      this.db.exec("ALTER TABLE profiles ADD COLUMN level INTEGER NOT NULL DEFAULT 0");
+      this.db.exec("ALTER TABLE profiles ADD COLUMN driverRating INTEGER NOT NULL DEFAULT 0");
+      this.db.exec("ALTER TABLE profiles ADD COLUMN division TEXT");
+    }
+    this.db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_profiles_division_rating ON profiles(division, driverRating DESC, totalXp DESC)",
+    );
     this.db.exec(
       "CREATE INDEX IF NOT EXISTS idx_trainings_profile ON trainings(profileId, completedAt)",
     );
 
     this.stmtGet = this.db.prepare("SELECT * FROM profiles WHERE guestId = ?");
     this.stmtUpsert = this.db.prepare(`
-      INSERT INTO profiles (guestId, hero, totalXp, racesCount, heroConfirmed, freeRespecUsed, lastRespecAt, createdAt, updatedAt)
-      VALUES (@guestId, @hero, @totalXp, @racesCount, @heroConfirmed, @freeRespecUsed, @lastRespecAt, @createdAt, @updatedAt)
+      INSERT INTO profiles (guestId, hero, totalXp, racesCount, heroConfirmed, freeRespecUsed, lastRespecAt, level, driverRating, division, createdAt, updatedAt)
+      VALUES (@guestId, @hero, @totalXp, @racesCount, @heroConfirmed, @freeRespecUsed, @lastRespecAt, @level, @driverRating, @division, @createdAt, @updatedAt)
       ON CONFLICT(guestId) DO UPDATE SET
         hero = excluded.hero,
         totalXp = excluded.totalXp,
@@ -145,6 +193,9 @@ export class SqliteDriverProfileRepository implements DriverProfileRepository {
         heroConfirmed = excluded.heroConfirmed,
         freeRespecUsed = excluded.freeRespecUsed,
         lastRespecAt = excluded.lastRespecAt,
+        level = excluded.level,
+        driverRating = excluded.driverRating,
+        division = excluded.division,
         updatedAt = excluded.updatedAt
     `);
     this.stmtAddRace = this.db.prepare(`
@@ -190,9 +241,28 @@ export class SqliteDriverProfileRepository implements DriverProfileRepository {
       upsert.run(this.profileParams(profile));
       markComplete.run(profile.updatedAt, training.id);
     });
+
+    this.stmtLeaderboard = this.db.prepare(
+      `SELECT guestId, hero, totalXp, racesCount, level, driverRating FROM profiles
+       WHERE division = ? AND heroConfirmed = 1
+       ORDER BY driverRating DESC, totalXp DESC, racesCount DESC, guestId ASC LIMIT ?`,
+    );
+    this.stmtViewerRow = this.db.prepare(
+      `SELECT guestId, hero, totalXp, racesCount, level, driverRating, division, heroConfirmed FROM profiles
+       WHERE guestId = ?`,
+    );
+    this.stmtViewerRank = this.db.prepare(
+      `SELECT COUNT(*) + 1 AS rank FROM profiles
+       WHERE division = ? AND heroConfirmed = 1 AND (
+         driverRating > ? OR (driverRating = ? AND totalXp > ?)
+       )`,
+    );
   }
 
   private profileParams(profile: DriverProfile) {
+    const level = levelFromXp(profile.totalXp);
+    const rating = driverRating(level, skillSum(profile.hero.skills));
+    const division = divisionForRating(rating);
     return {
       guestId: profile.guestId,
       hero: JSON.stringify(profile.hero),
@@ -201,6 +271,9 @@ export class SqliteDriverProfileRepository implements DriverProfileRepository {
       heroConfirmed: profile.heroConfirmed ? 1 : 0,
       freeRespecUsed: (profile.freeRespecUsed ?? false) ? 1 : 0,
       lastRespecAt: profile.lastRespecAt ?? null,
+      level,
+      driverRating: rating,
+      division,
       createdAt: profile.createdAt,
       updatedAt: profile.updatedAt,
     };
@@ -267,6 +340,21 @@ export class SqliteDriverProfileRepository implements DriverProfileRepository {
 
   completeTraining(training: TrainingJob, profile: DriverProfile): void {
     this.txCompleteTraining(training, profile);
+  }
+
+  leaderboard(division: Division, limit: number, viewerGuestId?: string): LeaderboardResult {
+    const capped = Math.max(1, Math.min(100, Math.floor(limit)));
+    const top = this.stmtLeaderboard.all(division, capped) as LeaderboardQueryRow[];
+    const rows: LeaderboardRow[] = top.map((r, i) => toLeaderboardRow(r, i + 1));
+    let me: LeaderboardRow | undefined;
+    if (viewerGuestId) {
+      const v = this.stmtViewerRow.get(viewerGuestId) as ViewerQueryRow | undefined;
+      if (v && v.division === division && v.heroConfirmed !== 0) {
+        const rankRow = this.stmtViewerRank.get(division, v.driverRating, v.driverRating, v.totalXp) as { rank: number };
+        me = toLeaderboardRow(v, rankRow.rank);
+      }
+    }
+    return me ? { division, rows, me } : { division, rows };
   }
 
   close(): void {

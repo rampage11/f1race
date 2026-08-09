@@ -37,6 +37,26 @@ export interface TrainingJob {
   completedAt: number | null;
 }
 
+export type Division = "F4" | "F3" | "F2" | "F1";
+
+export interface LeaderboardRow {
+  rank: number;
+  guestId: string;
+  name: string;
+  team: string;
+  country: string;
+  level: number;
+  driverRating: number;
+  racesCount: number;
+}
+
+export interface LeaderboardResult {
+  division: Division;
+  rows: LeaderboardRow[];
+  // The viewer's own rank/entry within this division (omitted if they are not in it).
+  me?: LeaderboardRow;
+}
+
 export interface DriverProfileRepository {
   get(guestId: string): DriverProfile | null;
   upsert(profile: DriverProfile): void;
@@ -47,4 +67,7 @@ export interface DriverProfileRepository {
   startTraining(profileId: string, skill: SkillKey, startedAt: number, durationSec: number): TrainingJob;
   cancelTraining(id: number): void;
   completeTraining(training: TrainingJob, profile: DriverProfile): void;
+  // Top profiles in a division by driverRating (denormalized on every upsert). When
+  // viewerGuestId is supplied, the viewer's own rank is computed and returned as `me`.
+  leaderboard(division: Division, limit: number, viewerGuestId?: string): LeaderboardResult;
 }

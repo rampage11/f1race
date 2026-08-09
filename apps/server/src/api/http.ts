@@ -3,6 +3,8 @@ import {
   ABSOLUTE_SKILL_MAX,
   CONFIG,
   SKILL_KEYS,
+  divisionForRating,
+  driverRating,
   levelFromXp,
   skillSum,
   trainingDurationSec,
@@ -14,9 +16,14 @@ import {
 } from "@f1race/race-engine";
 import { verifySessionToken } from "../auth/session.js";
 import { profileSummaryFrom } from "../auth/yandex.js";
-import type { DriverProfile, DriverProfileRepository, TrainingJob } from "../persistence/repository.js";
+import type { Division, DriverProfile, DriverProfileRepository, LeaderboardResult, TrainingJob } from "../persistence/repository.js";
 import type { DriverProfileSummary } from "../protocol.js";
 import { corsHeaders, readJsonBody, sendJson } from "../http-util.js";
+
+const DIVISIONS: readonly Division[] = ["F4", "F3", "F2", "F1"];
+function isDivision(v: unknown): v is Division {
+  return typeof v === "string" && (DIVISIONS as readonly string[]).includes(v);
+}
 
 export interface ApiEnv {
   // "" when SESSION_SECRET is unset → verifySessionToken always returns null (401 on all routes).
@@ -104,6 +111,31 @@ export async function handleApiRequest(
   if (method === "OPTIONS") {
     res.writeHead(204, corsHeaders(env.allowedOrigin));
     res.end();
+    return true;
+  }
+
+  // GET /api/leaderboard?division=F4&limit=50 — top profiles in a division by driverRating,
+  // plus the viewer's own rank (`me`) when authed. division defaults to the viewer's; limit
+  // clamped to [1, 100]. Only heroConfirmed profiles appear.
+  if (method === "GET" && path === "/api/leaderboard") {
+    const query = new URL(url, "http://localhost").searchParams;
+    const viewer = requireProfile(req, env);
+    const divisionParam = query.get("division");
+    let division: Division;
+    if (isDivision(divisionParam)) {
+      division = divisionParam;
+    } else if (viewer) {
+      division = divisionForRatingOf(viewer);
+    } else {
+      division = "F4";
+    }
+    const limit = clampInt(query.get("limit"), 50, 1, 100);
+    const result: LeaderboardResult = env.repository.leaderboard(
+      division,
+      limit,
+      viewer?.guestId,
+    );
+    sendJson(res, 200, result, env.allowedOrigin);
     return true;
   }
 
@@ -262,6 +294,18 @@ function isValidSkills(v: unknown): v is Skills {
     if (typeof s[k] !== "number" || !Number.isFinite(s[k] as number)) return false;
   }
   return true;
+}
+
+function divisionForRatingOf(profile: DriverProfile): Division {
+  const level = levelFromXp(profile.totalXp);
+  return divisionForRating(driverRating(level, skillSum(profile.hero.skills)));
+}
+
+function clampInt(raw: string | null, def: number, min: number, max: number): number {
+  if (raw == null || raw === "") return def;
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isFinite(n)) return def;
+  return Math.max(min, Math.min(max, n));
 }
 
 function isValidHero(v: unknown): v is PilotProfile {
