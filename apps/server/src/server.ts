@@ -6,6 +6,7 @@ import type { ClientMessage, ServerMessage } from "./protocol.js";
 import { PROTOCOL_VERSION } from "./protocol.js";
 import { Room, resolveHeroProfile, type RoomSink } from "./room.js";
 import { Lobby, divisionOf } from "./lobby.js";
+import { TutorialRoom } from "./tutorial-room.js";
 import { createRepository, type DriverProfileRepository } from "./persistence/index.js";
 import { handleAuthRequest, verifySessionToken, type AuthEnv } from "./auth/index.js";
 import { handleApiRequest, type ApiEnv } from "./api/http.js";
@@ -26,6 +27,7 @@ interface ConnState {
   ws: WebSocket;
   connectionId: string;
   room: Room | null;
+  tutorial: TutorialRoom | null;
 }
 
 function send(ws: WebSocket, msg: ServerMessage): void {
@@ -102,7 +104,7 @@ export function startServer(port: number = Number(process.env.PORT ?? 8787)): Pr
   lobby.start();
 
   wss.on("connection", (ws: WebSocket) => {
-    const conn: ConnState = { ws, connectionId: randomUUID(), room: null };
+    const conn: ConnState = { ws, connectionId: randomUUID(), room: null, tutorial: null };
     conns.set(conn.connectionId, conn);
     ws.on("message", (raw) => {
       let msg: ClientMessage;
@@ -118,6 +120,10 @@ export function startServer(port: number = Number(process.env.PORT ?? 8787)): Pr
   });
 
   function onConnClosed(conn: ConnState): void {
+    if (conn.tutorial) {
+      conn.tutorial.stop();
+      conn.tutorial = null;
+    }
     const room = conn.room;
     if (room) {
       room.removeConnection(conn.connectionId);
@@ -260,13 +266,17 @@ function handle(
       applyOrError(ws, conn.room?.setPaused(conn.connectionId, msg.paused) ?? null);
       break;
     case "pit":
-      applyOrError(ws, conn.room?.requestPit(conn.connectionId, msg.compound) ?? null);
+      // During the tutorial, control messages go to the TutorialRoom, not a matchmaking Room.
+      if (conn.tutorial) conn.tutorial.handleMessage({ type: "pit", compound: msg.compound });
+      else applyOrError(ws, conn.room?.requestPit(conn.connectionId, msg.compound) ?? null);
       break;
     case "cancelPit":
-      applyOrError(ws, conn.room?.cancelPit(conn.connectionId) ?? null);
+      if (conn.tutorial) conn.tutorial.handleMessage({ type: "cancelPit" });
+      else applyOrError(ws, conn.room?.cancelPit(conn.connectionId) ?? null);
       break;
     case "hammerTime":
-      applyOrError(ws, conn.room?.requestHammer(conn.connectionId, msg.mode) ?? null);
+      if (conn.tutorial) conn.tutorial.handleMessage({ type: "hammerTime", mode: msg.mode });
+      else applyOrError(ws, conn.room?.requestHammer(conn.connectionId, msg.mode) ?? null);
       break;
     case "setStartingTyre":
       applyOrError(ws, conn.room?.requestSetStartingTyre(conn.connectionId, msg.compound) ?? null);
@@ -277,6 +287,35 @@ function handle(
         conn.room?.recordStartReaction(conn.connectionId, msg.clientTimestamp, msg.sequenceId) ?? null,
       );
       break;
+    case "startTutorial": {
+      // Tutorial is a parallel entry to `hello` (no lobby, solo). Leave any current room/queue.
+      const prevRoom = conn.room;
+      if (prevRoom) {
+        prevRoom.removeConnection(conn.connectionId);
+        cleanupRoom(prevRoom);
+        conn.room = null;
+      } else {
+        lobby.dequeue(conn.connectionId);
+      }
+      if (conn.tutorial) {
+        conn.tutorial.stop();
+        conn.tutorial = null;
+      }
+      let resolvedGuestId: string | undefined = msg.guestId;
+      if (msg.authToken) {
+        const authPayload = verifySessionToken(msg.authToken, sessionSecret);
+        if (authPayload) resolvedGuestId = authPayload.sub;
+      }
+      const resolved = resolveHeroProfile(repository, msg.hero, resolvedGuestId);
+      if (resolved.profile && resolved.profile.tutorialCompleted === true) {
+        send(ws, { type: "error", message: "tutorial already completed" });
+        break;
+      }
+      const tutorial = new TutorialRoom(makeSink(ws), resolved.hero, repository, resolved.profile);
+      conn.tutorial = tutorial;
+      tutorial.start();
+      break;
+    }
   }
 }
 

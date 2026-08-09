@@ -522,6 +522,7 @@ export class Room {
 
   restart(connectionId: ConnectionId): CommandError {
     if (!this.connections.has(connectionId)) return "no room for connection";
+    if (this.mode === "multiplayer") return "restart disabled in multiplayer";
     if (!this.rateLimitOk(connectionId, "restart")) return "rate limit: restart";
     this.stop();
     this.clearStartSequence();

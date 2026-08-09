@@ -140,8 +140,7 @@ export function RaceView({ hero, guestId, onChangeDriver }: { hero: PilotProfile
           >
             {s.paused ? "▶ Играть" : "❚❚ Пауза"}
           </button>
-          <button className="restart" onClick={s.restart}>↻ Заново</button>
-          <button className="ghost" onClick={onChangeDriver}>Сменить пилота</button>
+          <button className="ghost" onClick={onChangeDriver}>В хаб</button>
         </div>
       </header>
 
@@ -167,8 +166,7 @@ export function RaceView({ hero, guestId, onChangeDriver }: { hero: PilotProfile
                 <ResultSummary result={s.result} heroId={s.heroId} />
                 {s.lastProgression && <ProgressionCard progression={s.lastProgression} />}
                 <div className="overlay-actions">
-                  <button onClick={s.restart}>↻ Гонять снова</button>
-                  <button className="ghost" onClick={onChangeDriver}>Сменить пилота</button>
+                  <button onClick={onChangeDriver}>В хаб</button>
                 </div>
               </div>
             </div>

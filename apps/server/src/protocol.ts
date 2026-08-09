@@ -55,9 +55,11 @@ export type ClientMessage =
   // race grid (authoritative — the client never sets its own race start locally).
   | { type: "setStartingTyre"; compound: TyreCompound }
   // Request the guided first-race tutorial instead of the normal lobby flow. Sent right after
-  // `hello` by a client that sees `tutorialCompleted === false` on the loaded profile. The
-  // server builds a 2-lap solo room and streams tutorialStep hints over the snapshots.
-  | { type: "startTutorial" };
+  // the socket opens (INSTEAD of `hello`) by a client that sees `tutorialCompleted === false`
+  // on the loaded profile. Carries the same identity fields as `hello` so the server resolves
+  // the profile; the server builds a 3-lap solo room and streams tutorialStep hints. Rejected
+  // if the profile already has tutorialCompleted === true.
+  | { type: "startTutorial"; hero: PilotProfile; guestId?: string; authToken?: string };
 
 export interface RoomPlayer {
   driverId: string;
