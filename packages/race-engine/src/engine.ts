@@ -666,18 +666,22 @@ export class RaceEngine {
     const leaderTime = ranked.find((c) => !c.dnf)?.raceTime ?? 0;
     const rows: RaceResultRow[] = ranked.map((c, i) => {
       const noStop = c.tyreStops < 1;
+      const wrongCompound = !c.compoundChanged;
       if (noStop && c.finishPlace == null) {
         this.pushEvent({ t: this.time, type: "info", message: `${this.driverOf(c).name}: дисквалификация — не заехал в боксы` });
+      } else if (!noStop && wrongCompound && c.finishPlace == null) {
+        this.pushEvent({ t: this.time, type: "info", message: `${this.driverOf(c).name}: штраф 30с — не сменён состав резины` });
       }
       const dsq = noStop;
-      // No compound-change penalty: same-compound stops are a legal strategy. Only a total
-      // failure to stop is punished (DSQ above).
+      // Same-compound stops are physically allowed (you can pick fresh rubber of the same type,
+      // e.g. fresh wets), but they violate the change-compound rule and take the 30s penalty.
+      const compoundPenalty = wrongCompound && !noStop ? 30 : 0;
       return {
         driverId: c.driverId,
         place: c.finishPlace ?? i + 1,
-        raceTime: dsq ? Number.POSITIVE_INFINITY : c.raceTime + c.penaltySec,
+        raceTime: dsq ? Number.POSITIVE_INFINITY : c.raceTime + c.penaltySec + compoundPenalty,
         bestLapTime: c.bestLapTime,
-        gapToLeader: dsq ? 0 : Math.max(0, c.raceTime - leaderTime),
+        gapToLeader: dsq ? 0 : Math.max(0, c.raceTime + compoundPenalty - leaderTime),
         tyreStops: c.tyreStops,
         fastestLap: !dsq && this.fastestLapDriverId === c.driverId,
         positionsGained: Math.max(0, c.gridPosition - (c.finishPlace ?? i + 1)),
