@@ -45,6 +45,7 @@ export function RaceView({ hero, guestId, onChangeDriver, tutorial }: { hero: Pi
   const isStartSequence = s.stage === "startSequence";
 
   const [tyreSelectShown, setTyreSelectShown] = useState(false);
+  const [dismissedTutStep, setDismissedTutStep] = useState<string | null>(null);
   const tyreSelectSeenForRef = useRef<string | null>(null);
   // Detect the lobby→qualy transition DURING render (not in a useEffect) so the tyre-select
   // overlay covers the canvas on the FIRST painted qualy frame — a useEffect runs only after
@@ -155,8 +156,9 @@ export function RaceView({ hero, guestId, onChangeDriver, tutorial }: { hero: Pi
             <div className="error-toast" key={lastError.id}>{lastError.message}</div>
           )}
           <TrackCanvas snapshot={snap} heroId={s.heroId} trackId={trackId} weather={effWeather} timeOfDay={timeOfDay} />
-          {tutorial && s.tutorialStep && (
+          {tutorial && s.tutorialStep && s.tutorialStep.step !== dismissedTutStep && (
             <div className={`tutorial-banner${s.tutorialStep.highlight ? ` tutorial-hl-${s.tutorialStep.highlight}` : ""}`}>
+              <button className="tut-dismiss" onClick={() => setDismissedTutStep(s.tutorialStep!.step)} aria-label="Скрыть подсказку">×</button>
               {s.tutorialStep.title && <strong>{s.tutorialStep.title}</strong>}
               {s.tutorialStep.text && <span>{s.tutorialStep.text}</span>}
             </div>
