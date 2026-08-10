@@ -163,6 +163,9 @@ export async function handleYandexCallback(args: HandleCallbackArgs): Promise<Ca
       racesCount: 0,
       // Force the first-login SetupScreen gate; flipped by POST /api/profile/confirm.
       heroConfirmed: false,
+      // A brand-new user hasn't run the guided first race yet — the hub must route them to the
+      // tutorial before a normal race. (Defaults to skipped for legacy rows; new ones override.)
+      tutorialCompleted: false,
       createdAt: now,
       updatedAt: now,
     };

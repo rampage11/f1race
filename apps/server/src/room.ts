@@ -163,6 +163,10 @@ export function resolveHeroProfile(
     totalXp: 0,
     racesCount: 0,
     heroConfirmed: !isYandex,
+    // Same reasoning as the Yandex callback: a freshly (re)created profile hasn't run the
+    // guided first race, so the hub should route to the tutorial. Defaults to skipped for
+    // legacy rows; explicit here so a reset actually re-triggers it.
+    tutorialCompleted: false,
     createdAt: now,
     updatedAt: now,
   };
