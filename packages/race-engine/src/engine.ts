@@ -28,7 +28,6 @@ export interface EngineOptions {
 
 export type PitRequestResult =
   | "queued"
-  | "rejected_same_compound"
   | "rejected_unknown_driver"
   | "rejected_not_racing";
 
@@ -199,7 +198,9 @@ export class RaceEngine {
     if (this.phase !== "racing") return "rejected_not_racing";
     const car = this.cars.find((c) => c.driverId === driverId);
     if (!car) return "rejected_unknown_driver";
-    if (car.tyre.compound === compound) return "rejected_same_compound";
+    // Same-compound stops are allowed (fresh rubber of the same type is a legit choice, e.g.
+    // fresh wets in a long wet race); the F1 "must change compound" rule is intentionally NOT
+    // enforced. Only the pit-lane time delta gates the stop.
     this.pitRequests.set(driverId, compound);
     return "queued";
   }
@@ -306,7 +307,11 @@ export class RaceEngine {
         car.lapStartTime = car.raceTime;
         car.tyre.ageLaps += 1;
         const hammerFrac = lapTime > 0 ? Math.min(1, car.hammerActiveSecThisLap / lapTime) : 0;
-        const wearBase = hammerMode ? CONFIG.HAMMER_TIME.mode[hammerMode].tyreWear : 1;
+        // Use the persisted car.hammerMode (not the step-local one) so a boost that expired
+        // mid-lap still taxes tyre wear for the fraction of the lap it was active — the wear
+        // cost is earned the moment Hammer Time is used, regardless of when the lap completes.
+        const wearMode = hammerFrac > 0 ? car.hammerMode : null;
+        const wearBase = wearMode ? CONFIG.HAMMER_TIME.mode[wearMode].tyreWear : 1;
         const wearMult = 1 + hammerFrac * (wearBase - 1);
         const wear = wearDeltaForLap(car.tyre, this.lapLengthKm, driver.skills.tyreMgmt, this.effectiveWeather) * wearMult;
         car.tyre.wear = Math.min(1, car.tyre.wear + wear);
@@ -661,20 +666,18 @@ export class RaceEngine {
     const leaderTime = ranked.find((c) => !c.dnf)?.raceTime ?? 0;
     const rows: RaceResultRow[] = ranked.map((c, i) => {
       const noStop = c.tyreStops < 1;
-      const wrongCompound = !c.compoundChanged;
       if (noStop && c.finishPlace == null) {
         this.pushEvent({ t: this.time, type: "info", message: `${this.driverOf(c).name}: дисквалификация — не заехал в боксы` });
-      } else if (!noStop && wrongCompound && c.finishPlace == null) {
-        this.pushEvent({ t: this.time, type: "info", message: `${this.driverOf(c).name}: штраф 30с — не сменён состав резины` });
       }
       const dsq = noStop;
-      const compoundPenalty = wrongCompound && !noStop ? 30 : 0;
+      // No compound-change penalty: same-compound stops are a legal strategy. Only a total
+      // failure to stop is punished (DSQ above).
       return {
         driverId: c.driverId,
         place: c.finishPlace ?? i + 1,
-        raceTime: dsq ? Number.POSITIVE_INFINITY : c.raceTime + c.penaltySec + compoundPenalty,
+        raceTime: dsq ? Number.POSITIVE_INFINITY : c.raceTime + c.penaltySec,
         bestLapTime: c.bestLapTime,
-        gapToLeader: dsq ? 0 : Math.max(0, c.raceTime + compoundPenalty - leaderTime),
+        gapToLeader: dsq ? 0 : Math.max(0, c.raceTime - leaderTime),
         tyreStops: c.tyreStops,
         fastestLap: !dsq && this.fastestLapDriverId === c.driverId,
         positionsGained: Math.max(0, c.gridPosition - (c.finishPlace ?? i + 1)),

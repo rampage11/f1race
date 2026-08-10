@@ -178,11 +178,11 @@ describe("RaceEngine.requestPit result status (spec P19b)", () => {
     expect(engine.hasPendingPit(heroId)).toBe(true);
   });
 
-  it("returns 'rejected_same_compound' when requesting the current compound and does not queue", () => {
+  it("queues a same-compound stop (fresh rubber of the same type is allowed)", () => {
     const engine = makeHeroEngine("medium");
     const heroId = engine.config.heroId!;
-    expect(engine.requestPit(heroId, "medium")).toBe("rejected_same_compound");
-    expect(engine.hasPendingPit(heroId)).toBe(false);
+    expect(engine.requestPit(heroId, "medium")).toBe("queued");
+    expect(engine.hasPendingPit(heroId)).toBe(true);
   });
 
   it("returns 'rejected_unknown_driver' for an unknown driverId", () => {

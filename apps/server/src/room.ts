@@ -152,14 +152,17 @@ export function resolveHeroProfile(
     repository.upsert(existing);
     return { hero, guestId, profile: existing };
   }
+  // A missing Yandex profile (e.g. after a reset) re-created here MUST still pass the
+  // first-login onboarding gate — otherwise a `hello` carrying an authToken silently
+  // resurrects the profile as already-confirmed and the SetupScreen never shows. Plain guest
+  // identities (no Yandex OAuth) skip the gate as before.
+  const isYandex = guestId.startsWith("yandex:");
   const created: DriverProfile = {
     guestId,
     hero,
     totalXp: 0,
     racesCount: 0,
-    // The WS hello path creates guest profiles (not Yandex); guests never hit the first-login
-    // gate (the gated Yandex flow confirms via POST /api/profile/confirm before any WS hello).
-    heroConfirmed: true,
+    heroConfirmed: !isYandex,
     createdAt: now,
     updatedAt: now,
   };
@@ -454,7 +457,6 @@ export class Room {
     if (this.stage !== "race" || !this.race) return "pit only available during the race";
     const result = this.race.requestPit(driverId, compound);
     if (result === "queued") return null;
-    if (result === "rejected_same_compound") return "already on that tyre compound";
     if (result === "rejected_unknown_driver") return "unknown driver";
     if (result === "rejected_not_racing") return "pit only available during the race";
     return null;

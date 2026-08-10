@@ -64,13 +64,13 @@ export function PitPanel({
             <button
               key={c}
               className="ds-tyre-btn"
-              disabled={disabled || same}
-              title={same ? "Нельзя поставить тот же состав (правило Ф1)" : undefined}
-              style={{ borderColor: TYRE_COLORS[c], opacity: same ? 0.35 : 1 }}
+              disabled={disabled}
+              title={same ? "Поставить свежий комплект того же состава" : undefined}
+              style={{ borderColor: TYRE_COLORS[c], outline: same ? `2px solid ${TYRE_COLORS[c]}` : undefined, outlineOffset: "1px" }}
               onClick={() => onPit(c)}
             >
               <span className="dot" style={{ background: TYRE_COLORS[c] }} />
-              {TYRE_LABEL[c]}
+              {TYRE_LABEL[c]}{same ? " · текущий" : ""}
             </button>
           );
         })}
@@ -79,7 +79,7 @@ export function PitPanel({
         Отменить пит
       </button>
       <p className="ds-hint">
-        Пит-стоп стоит ~{PIT_DELTA} c. Обязательна смена состава (правило Ф1). Текущий состав ({TYRE_LABEL[currentCompound]}) недоступен. Inter/Wet — для дождя.
+        Пит-стоп стоит ~{PIT_DELTA} c. Можно поставить тот же состав (свежий комплект) — смена состава не обязательна. Inter/Wet — для дождя.
       </p>
     </section>
   );
