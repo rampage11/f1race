@@ -21,11 +21,11 @@ export function Hero() {
       <div className={`container ${styles.body}`}>
         <div className={styles.content}>
           <h1 className={styles.title}>
-            Гонка, которую считает <span className={styles.highlight}>сервер</span>, не сценарист
+            Ты не рулишь. Ты <span className={styles.highlight}>решаешь</span>.
           </h1>
           <p className={styles.subtitle}>
-            Торможение по факту дистанции, износ резины, обгоны по вероятностной модели — каждый
-            круг считает сервер.
+            Торможения, износ резины, дождь, обгоны и пит-стопы — всё по-настоящему.
+            А на трассе побеждает стратегия, а не рефлекс.
           </p>
           <CtaButton />
         </div>

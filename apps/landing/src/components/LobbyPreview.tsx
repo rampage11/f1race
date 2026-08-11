@@ -50,9 +50,8 @@ export function LobbyPreview() {
       </div>
       <div className={styles.notes}>
         <p className={`mono ${styles.note}`}>
-          Номерные плашки вместо командных цветов — упрощение превью; игровой рендер рисует машины по командам.
+          Чистый топ-даун вид — вся физика, без 3D-шума. В гонке машины идут в цветах команд.
         </p>
-        <p className={`mono ${styles.note}`}>В игре вид топ-даун, 3D-рендера гонки нет.</p>
       </div>
     </Section>
   );

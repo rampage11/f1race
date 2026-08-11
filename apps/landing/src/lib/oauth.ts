@@ -21,6 +21,10 @@ export function isYandexConfigured(): boolean {
   return yandexClientId() !== null;
 }
 
+export function gamePlayUrl(): string {
+  return `${gameOrigin()}/play/`;
+}
+
 export function beginYandexLogin(): void {
   const clientId = yandexClientId();
   if (!clientId) return;
