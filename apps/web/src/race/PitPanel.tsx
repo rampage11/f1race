@@ -46,7 +46,7 @@ export function PitPanel({
           />
         </div>
         <small className={onCliff ? "warn-text" : "ds-muted"}>
-          Износ {Math.round((hero.tyreWear ?? 0) * 100)}%{onCliff ? " — резина «поплыла», срочно питься!" : ""}
+          Износ {Math.round((hero.tyreWear ?? 0) * 100)}%{onCliff ? " — резина «поплыла», срочно на пит-стоп!" : ""}
         </small>
       </div>
 
@@ -79,7 +79,7 @@ export function PitPanel({
         Отменить пит
       </button>
       <p className="ds-hint">
-        Пит-стоп стоит ~{PIT_DELTA} c. Можно поставить и тот же состав (свежий комплект), но без смены состава — штраф 30с. Inter/Wet — для дождя.
+        Пит-стоп стоит ~{PIT_DELTA} с. Рекомендуется сменить состав; пит-стоп без смены состава — штраф 30 с, а без пит-стопа — дисквалификация. Inter/Wet — для дождя.
       </p>
     </section>
   );

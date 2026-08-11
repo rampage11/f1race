@@ -9,6 +9,38 @@ import { SKILL_META } from "../skills";
 const STARTING_POINTS = 10;
 const MAX_PER_SKILL = 5;
 
+interface Preset {
+  id: string;
+  label: string;
+  emoji: string;
+  blurb: string;
+  skills: Skills;
+}
+
+const PRESETS: Preset[] = [
+  {
+    id: "aggressor",
+    label: "Атакующий",
+    emoji: "⚔️",
+    blurb: "темп + обгоны",
+    skills: { fitness: 1, reaction: 1, attack: 3, defense: 1, pace: 3, tyreMgmt: 1 },
+  },
+  {
+    id: "tactician",
+    label: "Тактик",
+    emoji: "🎯",
+    blurb: "защита + шины",
+    skills: { fitness: 1, reaction: 0, attack: 1, defense: 3, pace: 2, tyreMgmt: 3 },
+  },
+  {
+    id: "allround",
+    label: "Универсал",
+    emoji: "⚖️",
+    blurb: "равномерно",
+    skills: { fitness: 1, reaction: 1, attack: 2, defense: 2, pace: 2, tyreMgmt: 2 },
+  },
+];
+
 const COUNTRIES: { code: string; flag: string; name: string }[] = [
   { code: "RU", flag: "🇷🇺", name: "Россия" },
   { code: "GB", flag: "🇬🇧", name: "Великобритания" },
@@ -107,7 +139,7 @@ export function SetupScreen({
         <p className="sub">
           {isOnboarding
             ? "Создайте своего пилота — это разовое решение на весь аккаунт"
-            : `Формула 4 · Red Bull Ring · ${laps} кругов (~${Math.round(lapKm * laps)} км) · 1 обязательный пит-стоп со сменой состава · без регистрации`}
+            : `Формула 4 · Red Bull Ring · ${laps} кругов (~${Math.round(lapKm * laps)} км) · 1 пит-стоп (без него — дисквалификация) · без регистрации`}
         </p>
 
         {showAuthRow && authName && (
@@ -170,6 +202,20 @@ export function SetupScreen({
             Навыки
             <em>осталось очков: <strong className={remaining === 0 ? "ok" : "warn"}>{remaining}</strong></em>
           </span>
+          <div className="presets">
+            {PRESETS.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                className="preset-btn"
+                onClick={() => setCfg((c) => ({ ...c, skills: { ...p.skills } }))}
+                title={p.blurb}
+              >
+                <span className="preset-emoji">{p.emoji}</span>
+                <span className="preset-name">{p.label}</span>
+              </button>
+            ))}
+          </div>
           <div className="skills">
             {SKILL_META.map((s) => (
               <div className="skill" key={s.key}>
@@ -219,7 +265,7 @@ export function SetupScreen({
           <div className="field strategy-note">
             <span>Стратегия пит-стопа</span>
             <p className="hint">
-              Состав на пит выбирается <strong>во время гонки</strong> (панель «Пит-стоп»). Soft быстр, но умирает через ~{lifespan("soft")} круг. — обычно питаться на {lifespan("soft")}-{lifespan("soft") + 1}-м круге. По правилу Ф1 состав нужно <strong>сменить</strong>.
+              Состав на пит выбирается <strong>во время гонки</strong> (панель «Пит-стоп»). Soft быстрее всех, но «умирает» примерно через {lifespan("soft")} кругов — обычно пит-стоп на {lifespan("soft")}–{lifespan("soft") + 1}-м круге. По правилу Ф1 состав нужно <strong>сменить</strong>.
             </p>
           </div>
         )}

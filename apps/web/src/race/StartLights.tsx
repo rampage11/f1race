@@ -1,15 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { StartCategory } from "@f1race/race-engine";
 import type { MyStartResult } from "./useRaceSession";
+import { isTouchDevice } from "./device";
+
+const IS_TOUCH = isTouchDevice();
 
 const POST_BUFFER_MS = 5000;
 
 const CATEGORY_META: Record<StartCategory, { label: string; cls: string }> = {
-  perfect: { label: "PERFECT START", cls: "cat-perfect" },
-  good: { label: "GOOD START", cls: "cat-good" },
-  slow: { label: "SLOW START", cls: "cat-slow" },
-  verySlow: { label: "VERY SLOW", cls: "cat-slow" },
-  jumpStart: { label: "JUMP START", cls: "cat-jump" },
+  perfect: { label: "ИДЕАЛЬНЫЙ СТАРТ", cls: "cat-perfect" },
+  good: { label: "ХОРОШИЙ СТАРТ", cls: "cat-good" },
+  slow: { label: "МЕДЛЕННЫЙ СТАРТ", cls: "cat-slow" },
+  verySlow: { label: "ОЧЕНЬ МЕДЛЕННЫЙ", cls: "cat-slow" },
+  jumpStart: { label: "ФАЛЬСТАРТ", cls: "cat-jump" },
 };
 
 interface Props {
@@ -98,14 +101,14 @@ export function StartLights({ lightsOutAt, sequenceId, myStartResult, reacted, o
               {localJump && <div className="jump-warning">Клик до огней — ждём решения сервера</div>}
             </>
           ) : lightsOut ? (
-            <div className="go">GO!</div>
+            <div className="go">ВПЕРЁД!</div>
           ) : now < seqStart + 1000 ? (
             <div className="prompt">Приготовиться…</div>
           ) : (
             <div className="prompt">Красные загораются — реагируй на погасание</div>
           )}
         </div>
-        <div className="lights-hint">Space / Enter / клик</div>
+        <div className="lights-hint">{IS_TOUCH ? "тап по экрану" : "Space / Enter / клик"}</div>
       </div>
     </div>
   );

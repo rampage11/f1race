@@ -3,17 +3,21 @@ import type { SkillKey } from "@f1race/race-engine";
 import { ABSOLUTE_SKILL_MAX } from "@f1race/race-engine";
 import type { DriverProfileSummary } from "./identity";
 import { skillLabel, skillMeta, tyreMgmtEffectiveCap } from "./skills";
-import { cancelTraining, fetchTrainingState, startTraining } from "./api";
-import type { TrainingCallResult, TrainingStateDto, TrainingStateResponse } from "./api";
+import { cancelTraining, fetchQuestsState, fetchTrainingState, startTraining } from "./api";
+import type { QuestView, TrainingCallResult, TrainingStateDto, TrainingStateResponse } from "./api";
 import { PilotStatsModal } from "./PilotStatsModal";
 import { LeaderboardScreen } from "./LeaderboardScreen";
 import { LevelUpModal } from "./LevelUpModal";
+import { QuestsPanel } from "./QuestsPanel";
+import { GarageScreen } from "./GarageScreen";
+import type { EquippedCosmetics } from "./api";
 import styles from "./HubScreen.module.css";
 
 export interface HubScreenProps {
   profile: DriverProfileSummary;
   onRace: () => void;
   onLogout: () => void;
+  onEquippedChanged?: (equipped: EquippedCosmetics) => void;
 }
 
 interface BuildingDef {
@@ -69,9 +73,10 @@ function skillHint(key: SkillKey): string {
   return skillMeta(key)?.hint ?? "";
 }
 
-export function HubScreen({ profile, onRace, onLogout }: HubScreenProps) {
+export function HubScreen({ profile, onRace, onLogout, onEquippedChanged }: HubScreenProps) {
   const [localProfile, setLocalProfile] = useState<DriverProfileSummary>(profile);
   const [training, setTraining] = useState<TrainingStateDto>({ status: "idle" });
+  const [quests, setQuests] = useState<QuestView[]>([]);
   const [activeEndsAt, setActiveEndsAt] = useState<number>(0);
   const [now, setNow] = useState<number>(Date.now());
   const [busy, setBusy] = useState<boolean>(false);
@@ -79,6 +84,8 @@ export function HubScreen({ profile, onRace, onLogout }: HubScreenProps) {
   const [toast, setToast] = useState<string | null>(null);
   const [showStats, setShowStats] = useState<boolean>(false);
   const [showLeaderboard, setShowLeaderboard] = useState<boolean>(false);
+  const [showQuests, setShowQuests] = useState<boolean>(false);
+  const [showGarage, setShowGarage] = useState<boolean>(false);
   const [showLevelUp, setShowLevelUp] = useState<boolean>(false);
   const [showMetaTip, setShowMetaTip] = useState<boolean>(false);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -133,6 +140,22 @@ export function HubScreen({ profile, onRace, onLogout }: HubScreenProps) {
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     };
   }, [applyResponse]);
+
+  // S2-9: refresh daily-quest progress on hub entry so the hub badge reflects claimable quests.
+  // Also re-fetch when the Quests panel closes (a claim inside it advances progress).
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      const r = await fetchQuestsState();
+      if (cancelled || !r || "error" in r) return;
+      setQuests(r.quests);
+      setLocalProfile(r.profile);
+    };
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [showQuests]);
 
   useEffect(() => {
     if (training.status !== "active") return;
@@ -195,6 +218,19 @@ export function HubScreen({ profile, onRace, onLogout }: HubScreenProps) {
   const hero = localProfile.hero;
   const skillValue = (k: SkillKey) => hero.skills[k];
 
+  // Sync local profile when the parent passes an updated one (e.g. after a race finished,
+  // a quest claim, or a cosmetic purchase). Compares the fields that may change.
+  const propKey = `${profile.level}:${profile.totalXp}:${profile.softCurrency}:${profile.unspentSkillPoints}`;
+  const lastPropKeyRef = useRef<string>(propKey);
+  useEffect(() => {
+    if (lastPropKeyRef.current !== propKey) {
+      lastPropKeyRef.current = propKey;
+      setLocalProfile(profile);
+    }
+  }, [propKey, profile]);
+
+  const claimableCount = quests.filter((q) => !q.claimed && q.progress >= q.goal).length;
+
   return (
     <div className={styles.root}>
       {toast && <div className={styles.toast}>{toast}</div>}
@@ -221,6 +257,29 @@ export function HubScreen({ profile, onRace, onLogout }: HubScreenProps) {
             </button>
           </div>
           <div className={styles.hudRight}>
+            <span className={styles.walletBtn} title="Мягкая валюта (CR)">
+              <span className={styles.walletIcon}>🪙</span>
+              <span className="ds-mono">{localProfile.softCurrency ?? 0}</span>
+            </span>
+            <button
+              type="button"
+              className={`${styles.lbBtn} ${styles.hubActionBtn}`}
+              onClick={() => setShowQuests(true)}
+              aria-label="Ежедневные задания"
+              title="Задания дня"
+            >
+              🎯
+              {claimableCount > 0 && <span className={styles.hubBadge}>{claimableCount}</span>}
+            </button>
+            <button
+              type="button"
+              className={`${styles.lbBtn} ${styles.hubActionBtn}`}
+              onClick={() => setShowGarage(true)}
+              aria-label="Гараж"
+              title="Гараж"
+            >
+              🎨
+            </button>
             <button
               type="button"
               className={styles.lbBtn}
@@ -319,6 +378,22 @@ export function HubScreen({ profile, onRace, onLogout }: HubScreenProps) {
       )}
       {showLeaderboard && (
         <LeaderboardScreen profile={localProfile} onClose={() => setShowLeaderboard(false)} />
+      )}
+      {showQuests && (
+        <QuestsPanel
+          onProfileChanged={setLocalProfile}
+          onClose={() => setShowQuests(false)}
+        />
+      )}
+      {showGarage && (
+        <GarageScreen
+          profile={localProfile}
+          onProfileChanged={(next, _currency, eq) => {
+            setLocalProfile(next);
+            onEquippedChanged?.(eq);
+          }}
+          onClose={() => setShowGarage(false)}
+        />
       )}
       {showLevelUp && (localProfile.unspentSkillPoints ?? 0) > 0 && (
         <LevelUpModal

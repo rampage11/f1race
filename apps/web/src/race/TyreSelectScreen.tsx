@@ -50,7 +50,7 @@ function isRainy(w: Weather): boolean {
   return w === "lightRain" || w === "heavyRain" || w === "variable";
 }
 
-function recommendCompound(w: Weather): TyreCompound {
+export function recommendedCompoundFor(w: Weather): TyreCompound {
   switch (w) {
     case "dry":
       return "soft";
@@ -75,7 +75,7 @@ export function TyreSelectScreen({ forecast, onConfirm }: {
   const trackName = forecast?.trackName;
   const trackCountry = forecast?.trackCountry;
 
-  const recommended = useMemo(() => recommendCompound(weather), [weather]);
+  const recommended = useMemo(() => recommendedCompoundFor(weather), [weather]);
   const rainy = isRainy(weather);
   const options = useMemo<CompoundOption[]>(
     () => (rainy ? [...DRY_OPTIONS, ...WET_OPTIONS] : DRY_OPTIONS),

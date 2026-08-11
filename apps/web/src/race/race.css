@@ -121,6 +121,78 @@
 }
 .hammer-cooldown .hammer-icon { color: var(--text-secondary); }
 
+/* ---------- Per-stint push strategy selector ---------- */
+.push-wrap {
+  position: fixed;
+  right: 24px;
+  bottom: 132px;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+.push-modes {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: stretch;
+  width: 130px;
+}
+.push-mode-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--mode-color, var(--accent-green)) 35%, transparent);
+  background: color-mix(in srgb, var(--mode-color, var(--accent-green)) 8%, var(--bg-elevated));
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: transform 0.12s var(--ease-standard), background 0.15s, border-color 0.15s;
+  opacity: 0.78;
+}
+.push-mode-btn:hover:not(:disabled) {
+  transform: translateX(-3px);
+  opacity: 1;
+  border-color: var(--mode-color, var(--accent-green));
+}
+.push-mode-btn:disabled { cursor: not-allowed; opacity: 0.35; }
+.push-mode-active {
+  opacity: 1;
+  background: color-mix(in srgb, var(--mode-color, var(--accent-green)) 24%, var(--bg-elevated));
+  border-color: var(--mode-color, var(--accent-green));
+  box-shadow: 0 0 0 1px var(--mode-color, var(--accent-green)) inset;
+}
+.push-mode-btn .push-mode-short {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--mode-color, var(--accent-green));
+  color: #0a0a0f;
+  font-weight: 700;
+  font-size: 11px;
+  flex: 0 0 auto;
+}
+.push-mode-btn .push-mode-label {
+  font-size: 12px;
+  letter-spacing: 0.02em;
+}
+.push-hint {
+  align-self: flex-end;
+  margin-right: 2px;
+  color: var(--text-tertiary);
+  max-width: 180px;
+  text-align: right;
+  text-transform: none;
+  letter-spacing: 0;
+  line-height: 1.3;
+  font-size: 10px;
+}
+
 /* ---------- Topbar meta chips ---------- */
 .topbar-meta {
   display: flex;
@@ -128,7 +200,34 @@
   gap: 8px;
   flex-wrap: wrap;
 }
-.ds-topbar-chip {
+
+/* ---------- Icon buttons (audio mute / hero-cam) ---------- */
+.icon-btn {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 17px;
+  line-height: 1;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.1s var(--ease-standard);
+}
+.icon-btn:hover:not(:disabled) {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+.icon-btn:active:not(:disabled) { transform: scale(0.94); }
+.icon-btn.active {
+  border-color: var(--accent-green);
+  color: var(--accent-green);
+  background: rgba(0, 210, 106, 0.10);
+}.ds-topbar-chip {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -183,6 +282,7 @@
 }
 .tutorial-banner.tutorial-hl-pit { border-color: var(--accent-orange); }
 .tutorial-banner.tutorial-hl-hammer { border-color: var(--accent-red); }
+.tutorial-banner.tutorial-hl-strategy { border-color: var(--accent-blue); }
 .tut-dismiss {
   position: absolute;
   top: 4px;
@@ -483,4 +583,273 @@
 .ds-tyre-confirm {
   width: 100%;
   margin-top: 2px;
+}
+
+/* ---------- DSQ pre-warning banner (S1-2) ---------- */
+.dsq-warn {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: linear-gradient(90deg, rgba(255, 45, 85, 0.96), rgba(190, 18, 60, 0.96));
+  border: 1px solid var(--accent-red);
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  box-shadow: 0 6px 20px rgba(255, 45, 85, 0.35);
+  color: #fff;
+  pointer-events: none;
+  animation: dsq-pulse 1.1s var(--ease-standard) infinite;
+}
+.dsq-warn-icon { font-size: 20px; line-height: 1; flex: none; }
+.dsq-warn-text {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: 0.02em;
+  line-height: 1.3;
+}
+.dsq-warn-text strong { font-weight: 800; }
+@keyframes dsq-pulse {
+  0%, 100% { box-shadow: 0 6px 20px rgba(255, 45, 85, 0.30); }
+  50% { box-shadow: 0 6px 28px rgba(255, 45, 85, 0.65); }
+}
+
+/* ---------- Weather-change pit prompt (S1-3) ---------- */
+.ds-weather-prompt {
+  position: absolute;
+  inset: 0;
+  z-index: 48;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  background: rgba(7, 9, 15, 0.74);
+  backdrop-filter: blur(6px);
+}
+.ds-weather-prompt-card {
+  width: 100%;
+  max-width: 460px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 22px 22px 18px;
+}
+.ds-weather-prompt-head { display: flex; align-items: center; gap: 14px; }
+.ds-weather-prompt-icon { font-size: 34px; line-height: 1; }
+.ds-weather-prompt-title { display: flex; flex-direction: column; gap: 2px; }
+.ds-weather-prompt-title .ds-heading {
+  font-family: var(--font-display);
+  font-size: 19px;
+  letter-spacing: 0.03em;
+  color: var(--text-primary);
+  margin: 0;
+}
+.ds-weather-prompt-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+}
+.ds-weather-prompt-btn {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 6px 10px;
+  background: var(--bg-elevated);
+  border: 2px solid var(--border-active);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: transform 0.15s var(--ease-standard), background 0.15s;
+}
+.ds-weather-prompt-btn:hover { transform: translateY(-2px); background: var(--bg-surface); }
+.ds-weather-prompt-btn.recommended { box-shadow: 0 0 0 1px var(--accent-green), 0 0 12px rgba(0, 210, 106, 0.3); }
+.ds-weather-prompt-btn.selected { border-width: 3px; background: rgba(255, 255, 255, 0.06); transform: translateY(-2px); }
+.ds-weather-prompt-btn .ds-tyre-select-short { font-weight: 700; font-size: 12px; letter-spacing: 0.04em; }
+.ds-weather-prompt-actions { display: flex; flex-direction: column; gap: 8px; }
+.ds-weather-prompt-confirm { width: 100%; font-size: 16px; padding: 12px 20px; }
+.ds-weather-prompt-dismiss {
+  width: 100%;
+  background: transparent;
+  border: 1px solid var(--border-active);
+  color: var(--text-secondary);
+  border-radius: var(--radius-md);
+  padding: 10px 16px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.ds-weather-prompt-dismiss:hover:not(:disabled) { background: var(--bg-elevated); color: var(--text-primary); }
+
+/* ---------- Hammer hint caption (S2-8) ---------- */
+.hammer-hint {
+  align-self: flex-end;
+  margin-right: 2px;
+  color: var(--text-tertiary);
+}
+
+/* ---------- Event toasts + standings flash (S2-3) ---------- */
+.event-toast-stack {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  z-index: 22;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-end;
+  pointer-events: none;
+  max-width: min(280px, 70vw);
+}
+.event-toast {
+  padding: 7px 14px;
+  border-radius: var(--radius-md);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.03em;
+  color: #fff;
+  background: rgba(18, 18, 26, 0.92);
+  border: 1px solid var(--border-active);
+  border-left-width: 3px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  animation: event-toast-in 0.18s var(--ease-standard) both;
+}
+.event-toast.gain { border-left-color: var(--accent-green); color: var(--accent-green); }
+.event-toast.loss { border-left-color: var(--accent-red); color: var(--accent-red); }
+.event-toast.gold { border-left-color: var(--accent-gold); color: var(--accent-gold); }
+.event-toast.info { font-family: var(--font-body); font-weight: 500; font-size: 12px; letter-spacing: 0; border-left-color: var(--accent-orange); color: #fff; }
+@keyframes event-toast-in {
+  from { opacity: 0; transform: translateX(14px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+.ds-stand-row.flash-gain {
+  animation: stand-flash-gain 0.8s var(--ease-standard);
+}
+.ds-stand-row.flash-loss {
+  animation: stand-flash-loss 0.8s var(--ease-standard);
+}
+@keyframes stand-flash-gain {
+  0% { background: rgba(0, 210, 106, 0.55); }
+  100% { background: rgba(0, 210, 106, 0.08); }
+}
+@keyframes stand-flash-loss {
+  0% { background: rgba(255, 45, 85, 0.55); }
+  100% { background: rgba(0, 210, 106, 0.08); }
+}
+
+/* ============================================================
+   MOBILE LAYOUT (S2-8)
+   Reflow: canvas full-width top, Pit + Hammer dock to a
+   thumb-reachable bottom bar. Desktop rules untouched.
+   ============================================================ */
+@media (max-width: 768px) {
+  .app { max-width: 100%; padding: 8px 8px 0; }
+  .topbar { gap: 8px; margin-bottom: 8px; }
+  .brand { font-size: 14px; }
+  .controls button { padding: 6px 10px; font-size: 12px; }
+  .ds-topbar-chip { padding: 4px 8px; font-size: 12px; }
+
+  .layout {
+    grid-template-columns: 1fr;
+    gap: 8px;
+    /* leave room for the fixed pit bar + hammer dock */
+    padding-bottom: calc(var(--mobile-pit-h, 150px) + env(safe-area-inset-bottom, 0px));
+  }
+  .stage { position: relative; }
+  .side { gap: 8px; }
+  .ds-stand-list { max-height: 200px; }
+
+  :root { --mobile-pit-h: 150px; }
+
+  /* Pit panel docks to a thumb-reachable bottom bar */
+  .ds-pit {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 45;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+    max-height: var(--mobile-pit-h);
+    overflow-y: auto;
+    box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.5);
+  }
+  .ds-pit h3 { display: none; }
+  .ds-pit .ds-hint { display: none; }
+  .ds-pit .ds-tyre-wear { margin-bottom: 6px; }
+  .ds-tyre-buttons {
+    grid-template-columns: repeat(5, 1fr);
+    gap: 4px;
+  }
+  .ds-tyre-btn { font-size: 11px; padding: 8px 4px; }
+  .ds-pit-cancel { font-size: 12px; padding: 8px; }
+
+  /* Hammer docks bottom-left just above the pit bar; modes go horizontal */
+  .hammer-wrap {
+    right: auto;
+    left: 10px;
+    bottom: calc(var(--mobile-pit-h, 150px) - 6px);
+    z-index: 46;
+  }
+  .hammer-modes {
+    flex-direction: row;
+    width: auto;
+    gap: 4px;
+  }
+  .hammer-mode-btn {
+    flex-direction: column;
+    padding: 6px 8px;
+    gap: 2px;
+    min-width: 48px;
+    min-height: 44px;
+    justify-content: center;
+  }
+  .hammer-mode-btn .hammer-mode-label { font-size: 10px; }
+  .hammer-hint { display: none; }
+  .hammer-btn { width: 56px; height: 56px; }
+
+  /* Push strategy docks bottom-right, mirroring Hammer across the pit bar */
+  .push-wrap {
+    right: 10px;
+    left: auto;
+    bottom: calc(var(--mobile-pit-h, 150px) - 6px);
+    z-index: 46;
+  }
+  .push-modes {
+    flex-direction: row;
+    width: auto;
+    gap: 4px;
+  }
+  .push-mode-btn {
+    flex-direction: column;
+    padding: 6px 8px;
+    gap: 2px;
+    min-width: 48px;
+    min-height: 44px;
+    justify-content: center;
+  }
+  .push-mode-btn .push-mode-label { font-size: 10px; }
+  .push-hint { display: none; }
+
+  /* Compact overlays on small screens */
+  .ds-weather-prompt-card { max-width: 100%; padding: 16px; gap: 12px; }
+  .ds-weather-prompt-grid { gap: 5px; }
+  .ds-weather-prompt-btn { padding: 10px 4px 8px; }
+  .ds-tyre-select-card { max-width: 100%; padding: 18px; gap: 14px; }
+  .ds-tyre-select-grid { grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
+  .ds-tyre-select-grid.wet { grid-template-columns: 1fr 1fr 1fr; }
+
+  .dsq-warn-text { font-size: 12px; }
+
+  .start-lights-card { padding: 18px 18px; gap: 14px; }
+  .light { width: 38px; height: 38px; }
+  .lights-row { gap: 8px; }
 }

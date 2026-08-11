@@ -4,7 +4,8 @@ import { SetupScreen } from "./race/SetupScreen";
 import { RaceView } from "./race/RaceView";
 import { LandingScreen } from "./LandingScreen";
 import { HubScreen } from "./HubScreen";
-import { confirmHero, fetchProfile } from "./api";
+import { confirmHero, fetchCosmeticsCatalog, fetchCosmeticsOwned, fetchProfile } from "./api";
+import type { CosmeticDef, EquippedCosmetics } from "./api";
 import {
   beginYandexLogin,
   clearAuth,
@@ -35,6 +36,8 @@ function deriveInitialScreen(p: DriverProfileSummary | null): Screen {
 export default function App() {
   const [guestId] = useState(() => getOrCreateGuestId());
   const [authProfile, setAuthProfileState] = useState<DriverProfileSummary | null>(() => getAuthProfile());
+  const [cosmeticsCatalog, setCosmeticsCatalog] = useState<CosmeticDef[]>([]);
+  const [equippedCosmetics, setEquippedCosmetics] = useState<EquippedCosmetics>({});
   const [screen, setScreen] = useState<Screen>(() => deriveInitialScreen(getAuthProfile()));
   const [callbackStatus, setCallbackStatus] = useState<CallbackStatus>(() =>
     isYandexCallbackPath() ? { kind: "exchanging" } : { kind: "idle" },
@@ -42,6 +45,45 @@ export default function App() {
   const [confirming, setConfirming] = useState(false);
   const [confirmError, setConfirmError] = useState<string | null>(null);
   const processedRef = useRef(false);
+
+  // Static cosmetics catalog (public, no auth). Loaded once so the equipped map (unlockIds) can
+  // be resolved to concrete values (hex accent / car-number string) for the race renderer.
+  useEffect(() => {
+    let cancelled = false;
+    fetchCosmeticsCatalog().then((cat) => {
+      if (cancelled || !cat) return;
+      setCosmeticsCatalog(cat);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Resolve equipped unlockIds → concrete {accentColor?: "#hex", carNumber?: "7"} for the renderer.
+  const equippedValues: { accentColor?: string; carNumber?: string } = (() => {
+    const byId = new Map(cosmeticsCatalog.map((c) => [c.id, c]));
+    const out: { accentColor?: string; carNumber?: string } = {};
+    const ac = equippedCosmetics.accentColor ? byId.get(equippedCosmetics.accentColor) : undefined;
+    if (ac && ac.type === "accentColor") out.accentColor = ac.value;
+    const cn = equippedCosmetics.carNumber ? byId.get(equippedCosmetics.carNumber) : undefined;
+    if (cn && cn.type === "carNumber") out.carNumber = cn.value;
+    return out;
+  })();
+
+  // S3-2: load the equipped cosmetics once we have a profile so the hub + race renderer can
+  // apply the hero's accent color + car number. Re-fetched when the screen returns to "hub"
+  // (e.g. after a race or a garage equip change).
+  useEffect(() => {
+    if (!authProfile) return;
+    let cancelled = false;
+    fetchCosmeticsOwned().then((data) => {
+      if (cancelled || !data) return;
+      setEquippedCosmetics(data.equipped);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [authProfile?.guestId, screen === "hub"]);
 
   useEffect(() => {
     if (!isYandexCallbackPath()) return;
@@ -149,6 +191,7 @@ export default function App() {
       {active === "hub" && authProfile && (
         <HubScreen
           profile={authProfile}
+          onEquippedChanged={setEquippedCosmetics}
           onRace={() => setScreen(authProfile.tutorialCompleted === false ? "tutorial" : "race")}
           onLogout={handleLogout}
         />
@@ -157,6 +200,7 @@ export default function App() {
         <RaceView
           hero={authProfile.hero}
           guestId={guestId}
+          equipped={equippedValues}
           tutorial
           onChangeDriver={async () => {
             // The server flipped tutorialCompleted on finish; refresh from /auth/me so the hub
@@ -177,6 +221,7 @@ export default function App() {
         <RaceView
           hero={authProfile.hero}
           guestId={guestId}
+          equipped={equippedValues}
           onChangeDriver={async () => {
             // Refresh from /auth/me so the hub reflects level-ups / banked skill points from
             // the just-finished race (the cached profile would be stale).

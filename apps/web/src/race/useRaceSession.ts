@@ -2,9 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   HammerMode,
   PilotProfile,
+  PushStrategy,
   QualyPhase,
   QualyResultRow,
   QualySnapshot,
+  RaceEvent,
   RaceResult,
   RaceSnapshot,
   StartCategory,
@@ -88,6 +90,7 @@ export interface SessionCar {
   blueFlag?: boolean;
   lateral?: number;
   overtakeScore?: number;
+  lastLapTime?: number | null;
   bestLapTime?: number | null;
   gapAhead?: number;
   phase?: QualyPhase;
@@ -95,6 +98,7 @@ export interface SessionCar {
   hammerTime?: { active: boolean; mode: HammerMode | null; remainingSec: number; cooldownSec: number; readyAt: number };
   drsActive?: boolean;
   tow?: boolean;
+  pushStrategy?: PushStrategy;
 }
 
 export interface SessionSnapshot {
@@ -110,6 +114,8 @@ export interface SessionSnapshot {
   trackId?: string;
   trackName?: string;
   trackCountry?: string;
+  events?: RaceEvent[];
+  latestEventSeq?: number;
 }
 
 export const ERROR_TEXT: Record<string, string> = {
@@ -119,7 +125,12 @@ export const ERROR_TEXT: Record<string, string> = {
   "rate limit: cancelPit": "Слишком частая отмена пит-стопа",
   "rate limit: restart": "Подождите перед рестартом",
   "rate limit: setStartingTyre": "Слишком частая смена резины",
+  "rate limit: setPushLevel": "Слишком частая смена стратегии",
+  "rate limit: hammerTime": "Слишком частый запрос Hammer Time",
+  "rate limit: startReaction": "Слишком частый запрос старта",
   "pit only available during the race": "Пит-стоп доступен только во время гонки",
+  "push level only available during the race": "Стратегия доступна только во время гонки",
+  "invalid push strategy": "Недопустимая стратегия",
   "already on that tyre compound": "Этот состав уже стоит — нужна смена (правило Ф1)",
   "unknown driver": "Вашего пилота нет в этой гонке",
   "invalid or expired session token": "Сессия истекла — переподключение новым входом",
@@ -182,6 +193,8 @@ function fromRace(snap: RaceSnapshot, heroId: string): SessionSnapshot {
     trackId: snap.trackId,
     trackName: snap.trackName,
     trackCountry: snap.trackCountry,
+    events: snap.events,
+    latestEventSeq: snap.eventSeq,
     cars: snap.cars.map((c) => ({
       driverId: c.driverId,
       name: c.name,
@@ -201,11 +214,14 @@ function fromRace(snap: RaceSnapshot, heroId: string): SessionSnapshot {
       blueFlag: c.blueFlag,
       lateral: c.lateral,
       overtakeScore: c.overtakeScore,
+      lastLapTime: c.lastLapTime,
+      bestLapTime: c.bestLapTime,
       gapAhead: c.gapAhead,
       gridPosition: c.gridPosition,
       hammerTime: c.hammerTime,
       drsActive: c.drsActive,
       tow: c.tow,
+      pushStrategy: c.pushStrategy,
     })),
   };
 }
@@ -241,6 +257,7 @@ export interface SessionControls {
   sendStartReaction: () => void;
   requestHammer: (mode: HammerMode) => void;
   setStartingTyre: (compound: TyreCompound) => void;
+  setPushLevel: (strategy: PushStrategy) => void;
 }
 
 export function useRaceSession(hero: PilotProfile, guestId: string, connMode: "race" | "tutorial" = "race"): SessionControls {
@@ -593,6 +610,10 @@ export function useRaceSession(hero: PilotProfile, guestId: string, connMode: "r
     send({ type: "setStartingTyre", compound });
   }, [send]);
 
+  const setPushLevel = useCallback((strategy: PushStrategy) => {
+    send({ type: "setPushLevel", strategy });
+  }, [send]);
+
   const heroId = driverId || snapshot?.heroId || "";
   const reconnecting = connectionState === "reconnecting";
   const reacted = startSequence !== null && reactedSequenceId === startSequence.sequenceId;
@@ -630,6 +651,7 @@ export function useRaceSession(hero: PilotProfile, guestId: string, connMode: "r
       sendStartReaction,
       requestHammer,
       setStartingTyre,
+      setPushLevel,
     }),
     [
       connectionState,
@@ -661,6 +683,7 @@ export function useRaceSession(hero: PilotProfile, guestId: string, connMode: "r
       sendStartReaction,
       requestHammer,
       setStartingTyre,
+      setPushLevel,
     ],
   );
 }

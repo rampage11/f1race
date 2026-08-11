@@ -1,6 +1,9 @@
 import { useEffect, type CSSProperties } from "react";
 import type { HammerMode } from "@f1race/race-engine";
 import type { SessionCar } from "./useRaceSession";
+import { isTouchDevice } from "./device";
+
+const IS_TOUCH = isTouchDevice();
 
 const SIZE = 80;
 const RING_R = 36;
@@ -81,21 +84,24 @@ export function HammerButton({
   return (
     <div className="hammer-wrap">
       {state === "available" ? (
-        <div className="hammer-modes" role="group" aria-label="Hammer Time режимы">
-          {MODES.map((m) => (
-            <button
-              key={m.key}
-              className="hammer-mode-btn"
-              onClick={() => onRequest(m.key)}
-              title={`${m.label} — ${m.hint} (${m.short}, клавиша ${m.key === "attack" ? "1" : m.key === "defend" ? "2" : "3/Shift"})`}
-              aria-label={`Hammer Time: ${m.label}`}
-              style={{ "--mode-color": m.color } as CSSProperties}
-            >
-              <span className="hammer-mode-short ds-mono">{m.short}</span>
-              <span className="hammer-mode-label">{m.label}</span>
-            </button>
-          ))}
-        </div>
+        <>
+          <div className="hammer-modes" role="group" aria-label="Hammer Time режимы">
+            {MODES.map((m) => (
+              <button
+                key={m.key}
+                className="hammer-mode-btn"
+                onClick={() => onRequest(m.key)}
+                title={IS_TOUCH ? `${m.label} — ${m.hint}` : `${m.label} — ${m.hint} (${m.short}, клавиша ${m.key === "attack" ? "1" : m.key === "defend" ? "2" : "3/Shift"})`}
+                aria-label={`Hammer Time: ${m.label}`}
+                style={{ "--mode-color": m.color } as CSSProperties}
+              >
+                <span className="hammer-mode-short ds-mono">{m.short}</span>
+                <span className="hammer-mode-label">{m.label}</span>
+              </button>
+            ))}
+          </div>
+          <div className="hammer-hint ds-microtext">{IS_TOUCH ? "тап по режиму" : "1 · 2 · 3 / Shift"}</div>
+        </>
       ) : (
         <button
           className={`hammer-btn hammer-${state}`}

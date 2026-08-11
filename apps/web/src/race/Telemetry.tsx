@@ -21,6 +21,16 @@ export function Telemetry({ snapshot, hero, grid }: { snapshot: SessionSnapshot;
   const isFastest = snapshot.cars.length > 0
     && hero.bestLapTime != null
     && snapshot.cars.every((c) => c.bestLapTime == null || c.bestLapTime >= hero.bestLapTime!);
+  const gapToLeader = pos > 1
+    ? snapshot.cars.reduce(
+        (sum, c) => {
+          const p = c.position ?? 0;
+          return p > 1 && p <= pos ? sum + (c.gapAhead ?? 0) : sum;
+        },
+        0,
+      )
+    : 0;
+  const lapTime = hero.lastLapTime ?? hero.bestLapTime ?? undefined;
 
   return (
     <div className="ds-telemetry">
@@ -32,17 +42,23 @@ export function Telemetry({ snapshot, hero, grid }: { snapshot: SessionSnapshot;
         <div className="ds-tel-gaps">
           <div className={`ds-tel-gap ${gapClass}`}>
             <span className="ds-microtext">отрыв</span>
-            <span className="ds-mono">{formatGap(gapAhead)}</span>
+            <span className="ds-mono">{formatGap(gapAhead, lapTime)}</span>
           </div>
           <div className="ds-tel-gap">
             <span className="ds-microtext">лидер</span>
-            <span className="ds-mono">{pos === 1 ? "—" : "—"}</span>
+            <span className="ds-mono">{pos > 1 ? formatGap(gapToLeader, lapTime) : "—"}</span>
           </div>
         </div>
         <div className="ds-tel-lap ds-mono">LAP {Math.min(lap + 1, totalLaps || lap + 1)}/{totalLaps}</div>
-        <div className={`ds-tel-best ${isFastest ? "fastest" : ""}`}>
-          <span className="ds-microtext">лучший круг</span>
-          <span className="ds-mono">{hero.bestLapTime != null ? `${hero.bestLapTime.toFixed(2)}с` : "—"}</span>
+        <div className="ds-tel-gaps">
+          <div className="ds-tel-best">
+            <span className="ds-microtext">посл. круг</span>
+            <span className="ds-mono">{hero.lastLapTime != null ? `${hero.lastLapTime.toFixed(2)}с` : "—"}</span>
+          </div>
+          <div className={`ds-tel-best ${isFastest ? "fastest" : ""}`}>
+            <span className="ds-microtext">лучш.</span>
+            <span className="ds-mono">{hero.bestLapTime != null ? `${hero.bestLapTime.toFixed(2)}с` : "—"}</span>
+          </div>
         </div>
       </div>
 

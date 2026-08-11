@@ -21,6 +21,7 @@ export interface DriverProfileSummary {
   racesCount: number;
   tutorialCompleted: boolean;
   unspentSkillPoints: number;
+  softCurrency: number;
 }
 
 function normalizeProfile(parsed: Partial<DriverProfileSummary>): DriverProfileSummary | null {
@@ -33,6 +34,7 @@ function normalizeProfile(parsed: Partial<DriverProfileSummary>): DriverProfileS
       // players aren't forced through the tutorial.
       tutorialCompleted: typeof parsed.tutorialCompleted === "boolean" ? parsed.tutorialCompleted : true,
       unspentSkillPoints: typeof parsed.unspentSkillPoints === "number" ? parsed.unspentSkillPoints : 0,
+      softCurrency: typeof parsed.softCurrency === "number" ? parsed.softCurrency : 0,
     } as DriverProfileSummary;
   }
   return null;

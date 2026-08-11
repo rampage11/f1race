@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef } from "react";
 import {
   pathBounds,
   pathCumulative,
@@ -29,6 +29,7 @@ const SPARK_MAX = 170;
 const SPARK_LIFE_MS = 220;
 const RAIN_LIGHT = 130;
 const RAIN_HEAVY = 300;
+const FLASH_TTL_MS = 600;
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
@@ -686,15 +687,42 @@ interface RainDrop {
   speed: number;
 }
 
+export type FlashKind = "gain" | "loss";
+
+export interface TrackCanvasHandle {
+  flashCar: (driverId: string, kind: FlashKind) => void;
+}
+
+interface CarFlash {
+  kind: FlashKind;
+  until: number;
+}
+
 interface TrackCanvasProps {
   snapshot: SessionSnapshot | null;
   heroId: string;
   trackId?: string;
   weather?: Weather;
   timeOfDay?: TimeOfDay;
+  heroCam?: boolean;
+  paused?: boolean;
+  equipped?: { accentColor?: string; carNumber?: string };
 }
 
-export function TrackCanvas({ snapshot, heroId, trackId, weather, timeOfDay }: TrackCanvasProps) {
+const HERO_ZOOM = 2.5;
+const CAM_LERP = 0.12;
+const ZOOM_LERP = 0.08;
+
+interface CamState {
+  x: number;
+  y: number;
+  zoom: number;
+}
+
+export const TrackCanvas = forwardRef<TrackCanvasHandle, TrackCanvasProps>(function TrackCanvas(
+  { snapshot, heroId, trackId, weather, timeOfDay, heroCam = false, paused = false, equipped },
+  ref,
+) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const geom = useMemo<Geom>(() => {
@@ -731,11 +759,19 @@ export function TrackCanvas({ snapshot, heroId, trackId, weather, timeOfDay }: T
   const sparksRef = useRef<Spark[]>([]);
   const rainRef = useRef<RainDrop[] | null>(null);
   const lastFrameRef = useRef<number>(performance.now());
+  const flashesRef = useRef<Map<string, CarFlash>>(new Map());
+
+  useImperativeHandle(ref, () => ({
+    flashCar(driverId: string, kind: FlashKind) {
+      flashesRef.current.set(driverId, { kind, until: performance.now() + FLASH_TTL_MS });
+    },
+  }), []);
 
   useEffect(() => {
     marksRef.current.clear();
     sparksRef.current = [];
     rainRef.current = null;
+    flashesRef.current.clear();
   }, [geom]);
 
   const heroIdRef = useRef(heroId);
@@ -744,6 +780,13 @@ export function TrackCanvas({ snapshot, heroId, trackId, weather, timeOfDay }: T
   weatherRef.current = weather;
   const todRef = useRef(timeOfDay);
   todRef.current = timeOfDay;
+  const heroCamRef = useRef(heroCam);
+  heroCamRef.current = heroCam;
+  const pausedRef = useRef(paused);
+  pausedRef.current = paused;
+  const equippedRef = useRef(equipped);
+  equippedRef.current = equipped;
+  const camRef = useRef<CamState>({ x: W / 2, y: H / 2, zoom: 1 });
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -777,32 +820,8 @@ export function TrackCanvas({ snapshot, heroId, trackId, weather, timeOfDay }: T
 
       const off = staticRef.current;
       ctx.clearRect(0, 0, W, H);
-      if (off) {
-        ctx.drawImage(off, 0, 0);
-      } else {
-        ctx.fillStyle = "#0b1220";
-        ctx.fillRect(0, 0, W, H);
-      }
 
       const ring = ringRef.current;
-      if (ring.length === 0) {
-        drawHud(ctx, geom, "");
-        return;
-      }
-      const sample = samplePair(ring, now - RENDER_DELAY_MS);
-      if (!sample) {
-        drawHud(ctx, geom, "");
-        return;
-      }
-
-      const { a, b, t } = sample;
-      const olderById = new Map<string, SessionCar>();
-      for (const c of a.cars) olderById.set(c.driverId, c);
-      const positions = new Map<string, CarPos>();
-      for (const car of b.cars) {
-        positions.set(car.driverId, carPos(car, olderById.get(car.driverId), t, painters));
-      }
-
       const w = weatherRef.current;
       const rainy = isRainy(w);
       const tod = todRef.current;
@@ -810,27 +829,99 @@ export function TrackCanvas({ snapshot, heroId, trackId, weather, timeOfDay }: T
       const marks = marksRef.current;
       const sparks = sparksRef.current;
 
-      addTyreMarks(marks, b.cars, positions, now);
-      drawTyreMarks(ctx, marks, now);
-
-      if (rainy) drawReflections(ctx, b.cars, positions);
-
-      drawHammerGlow(ctx, b.cars, positions);
-
-      const emitChance = dt;
-      for (const car of b.cars) {
-        const pos = positions.get(car.driverId);
-        if (!pos || pos.inPits) continue;
-        const hot = car.hammerTime?.active === true;
-        if (hot || (pos.lateral > 0.25 && Math.random() < emitChance * 5)) {
-          const n = hot ? 2 : 1;
-          for (let i = 0; i < n; i++) emitSpark(sparks, pos, hot ? "#ff2d55" : "#ffaa00", now);
+      let positions: Map<string, CarPos> | null = null;
+      let sampleB: SessionSnapshot | null = null;
+      if (ring.length > 0) {
+        const sample = samplePair(ring, now - RENDER_DELAY_MS);
+        if (sample) {
+          const olderById = new Map<string, SessionCar>();
+          for (const c of sample.a.cars) olderById.set(c.driverId, c);
+          positions = new Map();
+          for (const car of sample.b.cars) {
+            positions.set(car.driverId, carPos(car, olderById.get(car.driverId), sample.t, painters));
+          }
+          sampleB = sample.b;
         }
       }
-      updateSparks(sparks, dt, now);
-      drawSparks(ctx, sparks, now);
 
-      drawCars(ctx, b.cars, positions, hId, rainy, tod);
+      // Hero-cam target — follow the hero's interpolated screen position.
+      // Zoom-out escape when paused or hero is in pits: the pit sequence is a
+      // good moment to see the whole track (and the static layer is sharper).
+      const heroCar = sampleB ? sampleB.cars.find((c) => c.driverId === hId) ?? null : null;
+      const heroPos = heroCar && positions ? positions.get(hId) ?? null : null;
+      const camOn = heroCamRef.current;
+      const wantZoom = camOn && !pausedRef.current && heroPos && !heroPos.inPits ? HERO_ZOOM : 1;
+      const cam = camRef.current;
+      cam.zoom += (wantZoom - cam.zoom) * ZOOM_LERP;
+      if (heroPos && camOn) {
+        cam.x += (heroPos.x - cam.x) * CAM_LERP;
+        cam.y += (heroPos.y - cam.y) * CAM_LERP;
+      } else if (!camOn && (cam.x !== W / 2 || cam.y !== H / 2)) {
+        cam.x += (W / 2 - cam.x) * CAM_LERP;
+        cam.y += (H / 2 - cam.y) * CAM_LERP;
+      }
+      const applyCam = cam.zoom > 1.02;
+
+      if (applyCam) {
+        ctx.save();
+        ctx.translate(W / 2, H / 2);
+        ctx.scale(cam.zoom, cam.zoom);
+        ctx.translate(-cam.x, -cam.y);
+        ctx.beginPath();
+        ctx.rect(0, 0, W, H);
+        ctx.clip();
+      }
+
+      if (off) {
+        ctx.drawImage(off, 0, 0);
+      } else {
+        ctx.fillStyle = "#0b1220";
+        ctx.fillRect(0, 0, W, H);
+      }
+
+      if (positions && sampleB) {
+        addTyreMarks(marks, sampleB.cars, positions, now);
+        drawTyreMarks(ctx, marks, now);
+
+        if (rainy) drawReflections(ctx, sampleB.cars, positions);
+
+        drawHammerGlow(ctx, sampleB.cars, positions);
+
+        const emitChance = dt;
+        for (const car of sampleB.cars) {
+          const pos = positions.get(car.driverId);
+          if (!pos || pos.inPits) continue;
+          const hot = car.hammerTime?.active === true;
+          if (hot || (pos.lateral > 0.25 && Math.random() < emitChance * 5)) {
+            const n = hot ? 2 : 1;
+            for (let i = 0; i < n; i++) emitSpark(sparks, pos, hot ? "#ff2d55" : "#ffaa00", now);
+          }
+        }
+        updateSparks(sparks, dt, now);
+        drawSparks(ctx, sparks, now);
+
+        const flashes = flashesRef.current;
+        if (flashes.size > 0) {
+          for (const car of sampleB.cars) {
+            const flash = flashes.get(car.driverId);
+            if (!flash) continue;
+            const pos = positions.get(car.driverId);
+            if (!pos) continue;
+            if (now > flash.until) {
+              flashes.delete(car.driverId);
+              continue;
+            }
+            const color = flash.kind === "gain" ? "#00d26a" : "#ff2d55";
+            const ageFrac = 1 - (flash.until - now) / FLASH_TTL_MS;
+            drawFlash(ctx, pos, color, ageFrac);
+            if (Math.random() < 0.6) emitSpark(sparks, pos, color, now);
+          }
+        }
+
+        drawCars(ctx, sampleB.cars, positions, hId, rainy, tod, equippedRef.current);
+
+        if (tod === "night") drawHeadlights(ctx, sampleB.cars, positions, hId);
+      }
 
       const rainDrops = ensureRain(w);
       if (rainDrops.length > 0) {
@@ -840,9 +931,14 @@ export function TrackCanvas({ snapshot, heroId, trackId, weather, timeOfDay }: T
       drawWeatherOverlay(ctx, w);
       drawTimeOfDayOverlay(ctx, tod);
 
-      if (tod === "night") drawHeadlights(ctx, b.cars, positions, hId);
+      if (applyCam) {
+        ctx.restore();
+      }
 
-      drawHud(ctx, geom, b.totalLaps ? ` · ${b.totalLaps} кругов` : "");
+      drawHud(ctx, geom, sampleB?.totalLaps ? ` · ${sampleB.totalLaps} кругов` : "");
+      if (applyCam) {
+        drawCamIndicator(ctx);
+      }
     };
     raf = requestAnimationFrame(frame);
     return () => cancelAnimationFrame(raf);
@@ -856,7 +952,7 @@ export function TrackCanvas({ snapshot, heroId, trackId, weather, timeOfDay }: T
       style={{ width: "100%", maxWidth: W, height: "auto", borderRadius: 12, background: "#0a0a0f" }}
     />
   );
-}
+});
 
 function addTyreMarks(marks: Map<string, { x: number; y: number; t: number }[]>, cars: SessionCar[], positions: Map<string, CarPos>, now: number): void {
   for (const car of cars) {
@@ -937,6 +1033,34 @@ function emitSpark(sparks: Spark[], pos: CarPos, color: string, now: number): vo
   });
 }
 
+function drawFlash(ctx: CanvasRenderingContext2D, pos: CarPos, color: string, ageFrac: number): void {
+  const r = 14 + ageFrac * 26;
+  const alpha = Math.max(0, 0.7 * (1 - ageFrac));
+  const grad = ctx.createRadialGradient(pos.x, pos.y, 3, pos.x, pos.y, r);
+  grad.addColorStop(0, hexAlpha(color, alpha));
+  grad.addColorStop(1, hexAlpha(color, 0));
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(pos.x, pos.y, r, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = hexAlpha(color, alpha * 0.9);
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(pos.x, pos.y, r * 0.85, 0, Math.PI * 2);
+  ctx.stroke();
+}
+
+function hexAlpha(hex: string, alpha: number): string {
+  const a = Math.max(0, Math.min(1, alpha));
+  if (hex.startsWith("#") && hex.length === 7) {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return `rgba(${r},${g},${b},${a.toFixed(3)})`;
+  }
+  return hex;
+}
+
 function updateSparks(sparks: Spark[], dt: number, now: number): void {
   for (let i = sparks.length - 1; i >= 0; i--) {
     const s = sparks[i]!;
@@ -960,13 +1084,16 @@ function drawSparks(ctx: CanvasRenderingContext2D, sparks: Spark[], now: number)
   ctx.globalAlpha = 1;
 }
 
-function drawCars(ctx: CanvasRenderingContext2D, cars: SessionCar[], positions: Map<string, CarPos>, heroId: string, rainy: boolean, tod: TimeOfDay | undefined): void {
+function drawCars(ctx: CanvasRenderingContext2D, cars: SessionCar[], positions: Map<string, CarPos>, heroId: string, rainy: boolean, tod: TimeOfDay | undefined, equipped?: { accentColor?: string; carNumber?: string }): void {
   const night = tod === "night";
+  const heroAccent = equipped?.accentColor;
+  const heroNumber = equipped?.carNumber;
   for (const car of cars) {
     const pos = positions.get(car.driverId);
     if (!pos) continue;
     const isHero = car.driverId === heroId;
-    const fill = car.finished ? "#334155" : teamColor(car.team);
+    const baseColor = car.finished ? "#334155" : teamColor(car.team);
+    const fill = isHero && heroAccent ? heroAccent : baseColor;
     const ang = pos.angle;
     const off = pos.lateral > 0.05 && !pos.inPits ? pos.lateral * 14 : 0;
     const px = pos.x + -Math.sin(ang) * off;
@@ -997,6 +1124,16 @@ function drawCars(ctx: CanvasRenderingContext2D, cars: SessionCar[], positions: 
     }
     ctx.fillStyle = "rgba(0,0,0,0.35)";
     ctx.fillRect(-CAR_LEN / 2 + 4, -CAR_W / 2 + 2, CAR_LEN - 8, 2);
+    // Hero car number (cosmetic): drawn on the roof so it doesn't fight the tyre pip.
+    if (isHero && heroNumber) {
+      ctx.fillStyle = "rgba(255,255,255,0.92)";
+      ctx.font = "bold 8px ui-monospace, 'JetBrains Mono', monospace";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(heroNumber, 0, 0);
+      ctx.textAlign = "start";
+      ctx.textBaseline = "alphabetic";
+    }
     if (car.tyreCompound) {
       ctx.fillStyle = TYRE_COLORS[car.tyreCompound];
       ctx.beginPath();
@@ -1103,4 +1240,10 @@ function drawHud(ctx: CanvasRenderingContext2D, geom: Geom, suffix: string): voi
   ctx.fillStyle = "rgba(255,255,255,0.5)";
   ctx.font = "12px system-ui, sans-serif";
   ctx.fillText(`${geom.track.name}${suffix}`, 12, H - 12);
+}
+
+function drawCamIndicator(ctx: CanvasRenderingContext2D): void {
+  ctx.fillStyle = "rgba(0, 210, 106, 0.85)";
+  ctx.font = "bold 11px system-ui, sans-serif";
+  ctx.fillText("● HEROCAM", W - 86, 18);
 }

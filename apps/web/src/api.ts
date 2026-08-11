@@ -170,25 +170,183 @@ export interface LeaderboardRow {
   level: number;
   driverRating: number;
   racesCount: number;
+  xpGained?: number;
+}
+
+export interface LeaderboardSeason {
+  label: string;
+  weekStart: number;
+  weekEnd: number;
+  resetAt: number;
 }
 
 export interface LeaderboardResult {
   division: string;
   rows: LeaderboardRow[];
   me?: LeaderboardRow;
+  season?: LeaderboardSeason;
 }
 
-export async function fetchLeaderboard(division: string, limit = 50): Promise<LeaderboardResult | null> {
+export async function fetchLeaderboard(
+  division: string,
+  limit = 50,
+  season?: "current",
+): Promise<LeaderboardResult | null> {
   const token = getAuthToken();
   const headers: Record<string, string> = {};
   if (token) headers["Authorization"] = `Bearer ${token}`;
+  const qs = new URLSearchParams({
+    division,
+    limit: String(limit),
+  });
+  if (season) qs.set("season", season);
   try {
-    const res = await fetch(`${apiBaseUrl()}/api/leaderboard?division=${encodeURIComponent(division)}&limit=${limit}`, {
-      headers,
-    });
+    const res = await fetch(`${apiBaseUrl()}/api/leaderboard?${qs.toString()}`, { headers });
     if (!res.ok) return null;
     return (await res.json()) as LeaderboardResult;
   } catch {
     return null;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Daily quests (S2-9)
+// ---------------------------------------------------------------------------
+
+export interface QuestView {
+  questDefId: string;
+  desc: string;
+  goal: number;
+  progress: number;
+  claimed: boolean;
+}
+
+export interface QuestsStateResponse {
+  quests: QuestView[];
+  profile: DriverProfileSummary;
+}
+
+export interface QuestClaimResponse extends QuestsStateResponse {
+  claimed: { questDefId: string; xp: number; currency: number };
+}
+
+export type QuestStateResult = QuestsStateResponse | { error: string };
+export type QuestClaimResult = QuestClaimResponse | { error: string };
+
+export async function fetchQuestsState(): Promise<QuestStateResult | null> {
+  const token = getAuthToken();
+  if (!token) return null;
+  try {
+    const res = await fetch(`${apiBaseUrl()}/api/quests/state`, { headers: authHeaders() });
+    if (!res.ok) return null;
+    return (await res.json()) as QuestsStateResponse;
+  } catch {
+    return null;
+  }
+}
+
+export async function claimQuest(questDefId: string): Promise<QuestClaimResult> {
+  let res: Response;
+  try {
+    res = await fetch(`${apiBaseUrl()}/api/quests/claim`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ questDefId }),
+    });
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
+  if (!res.ok) {
+    const data = (await res.json().catch(() => null)) as { error?: string } | null;
+    return { error: data?.error ?? `HTTP ${res.status}` };
+  }
+  return (await res.json()) as QuestClaimResponse;
+}
+
+// ---------------------------------------------------------------------------
+// Cosmetics (S3-2 / S3-4)
+// ---------------------------------------------------------------------------
+
+export type CosmeticType = "accentColor" | "carNumber";
+
+export interface CosmeticDef {
+  id: string;
+  type: CosmeticType;
+  value: string;
+  cost: number;
+  level: number;
+}
+
+export interface CosmeticsCatalogResponse {
+  catalog: CosmeticDef[];
+}
+
+export type EquippedCosmetics = Partial<Record<CosmeticType, string>>;
+
+export interface CosmeticsOwnedResponse {
+  owned: string[];
+  equipped: EquippedCosmetics;
+  softCurrency: number;
+  profile: DriverProfileSummary;
+}
+
+export type CosmeticsResult = CosmeticsOwnedResponse | { error: string };
+
+export async function fetchCosmeticsCatalog(): Promise<CosmeticDef[] | null> {
+  try {
+    const res = await fetch(`${apiBaseUrl()}/api/cosmetics/catalog`);
+    if (!res.ok) return null;
+    const data = (await res.json()) as CosmeticsCatalogResponse;
+    return data.catalog;
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchCosmeticsOwned(): Promise<CosmeticsOwnedResponse | null> {
+  const token = getAuthToken();
+  if (!token) return null;
+  try {
+    const res = await fetch(`${apiBaseUrl()}/api/cosmetics/owned`, { headers: authHeaders() });
+    if (!res.ok) return null;
+    return (await res.json()) as CosmeticsOwnedResponse;
+  } catch {
+    return null;
+  }
+}
+
+export async function buyCosmetic(unlockId: string): Promise<CosmeticsResult> {
+  let res: Response;
+  try {
+    res = await fetch(`${apiBaseUrl()}/api/cosmetics/buy`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ unlockId }),
+    });
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
+  if (!res.ok) {
+    const data = (await res.json().catch(() => null)) as { error?: string } | null;
+    return { error: data?.error ?? `HTTP ${res.status}` };
+  }
+  return (await res.json()) as CosmeticsOwnedResponse;
+}
+
+export async function equipCosmetic(unlockId: string): Promise<CosmeticsResult> {
+  let res: Response;
+  try {
+    res = await fetch(`${apiBaseUrl()}/api/cosmetics/equip`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ unlockId }),
+    });
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
+  if (!res.ok) {
+    const data = (await res.json().catch(() => null)) as { error?: string } | null;
+    return { error: data?.error ?? `HTTP ${res.status}` };
+  }
+  return (await res.json()) as CosmeticsOwnedResponse;
 }

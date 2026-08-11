@@ -46,8 +46,9 @@ export function formatRaceTime(t: number): string {
   return `${m}:${s.toFixed(1).padStart(4, "0")}`;
 }
 
-export function formatGap(sec: number): string {
+export function formatGap(sec: number, lapTimeSec?: number): string {
   if (sec <= 0.05) return "—";
-  if (sec >= 60) return `+${(sec / 60).toFixed(1)}l`;
+  if (lapTimeSec && sec >= lapTimeSec) return `+${(sec / lapTimeSec).toFixed(1)}l`;
+  if (sec >= 60) return `+${Math.round(sec)}с`;
   return `+${sec.toFixed(2)}`;
 }
