@@ -42,8 +42,8 @@ Env (через `apps/web/.env.local`):
 ## Полезные скрипты
 
 ```bash
-pnpm --filter @f1race/race-engine test        # юнит-тесты движка (58)
-pnpm --filter @f1race/server test             # WS-интеграция + Room + lobby + persistence + auth + /api (100)
+pnpm --filter @f1race/race-engine test        # юнит-тесты движка (124)
+pnpm --filter @f1race/server test             # WS-интеграция + Room + lobby + persistence + auth + /api + quests/seasons/cosmetics (197)
 pnpm --filter @f1race/race-engine sim         # прогон гонки в консоли (лог/тюнинг)
 pnpm --filter @f1race/race-engine sim:grid    # сравнение билдов навыков героя
 pnpm --filter @f1race/race-engine typecheck   # проверки типов движка
