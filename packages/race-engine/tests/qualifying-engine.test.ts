@@ -66,4 +66,24 @@ describe("QualifyingEngine", () => {
     expect(order).toHaveLength(drivers.length);
     expect(new Set(order).size).toBe(drivers.length);
   });
+
+  it("S1-4: heavy-rain qualifying is slower than dry on the same seed/field", () => {
+    const driversDry = field(21);
+    const driversWet = field(21);
+    const dry = new QualifyingEngine(
+      buildQualyConfig({ track: redBullRing(), drivers: driversDry, seed: 21, weather: "dry" }),
+    ).run();
+    const rain = new QualifyingEngine(
+      buildQualyConfig({ track: redBullRing(), drivers: driversWet, seed: 21, weather: "heavyRain" }),
+    ).run();
+
+    const avg = (rows: { bestLapTime: number | null }[]): number => {
+      const times = rows.map((r) => r.bestLapTime).filter((t): t is number => t != null);
+      return times.reduce((a, b) => a + b, 0) / times.length;
+    };
+    const fastDry = dry.results[0]!.bestLapTime!;
+    const fastRain = rain.results[0]!.bestLapTime!;
+    expect(fastRain).toBeGreaterThan(fastDry);
+    expect(avg(rain.results)).toBeGreaterThan(avg(dry.results));
+  });
 });

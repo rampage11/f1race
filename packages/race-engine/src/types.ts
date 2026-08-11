@@ -12,6 +12,8 @@ export type TyreCompound = "soft" | "medium" | "hard" | "intermediate" | "wet";
 
 export type HammerMode = "attack" | "defend" | "push";
 
+export type PushStrategy = "conservative" | "balanced" | "attack";
+
 export type Weather = "dry" | "lightRain" | "heavyRain" | "variable";
 
 export type TimeOfDay = "day" | "sunset" | "night";
@@ -92,6 +94,7 @@ export interface CarState {
   hammerReadyAt: number;
   hammerActiveSecThisLap: number;
   hammerMode: HammerMode | null;
+  pushStrategy: PushStrategy;
   drsActiveUntil: number;
   tow: boolean;
   launchMult: number;
@@ -162,13 +165,13 @@ export interface RaceResult {
 }
 
 export type RaceEvent =
-  | { t: number; type: "race_start" }
-  | { t: number; type: "overtake"; attackerId: string; victimId: string; lap: number }
-  | { t: number; type: "pit_stop"; driverId: string; compound: TyreCompound; lap: number }
-  | { t: number; type: "false_start"; driverId: string }
-  | { t: number; type: "finish"; driverId: string; place: number }
-  | { t: number; type: "fastest_lap"; driverId: string; lapTime: number }
-  | { t: number; type: "info"; message: string };
+  | { seq: number; t: number; type: "race_start" }
+  | { seq: number; t: number; type: "overtake"; attackerId: string; victimId: string; lap: number }
+  | { seq: number; t: number; type: "pit_stop"; driverId: string; compound: TyreCompound; lap: number }
+  | { seq: number; t: number; type: "false_start"; driverId: string }
+  | { seq: number; t: number; type: "finish"; driverId: string; place: number }
+  | { seq: number; t: number; type: "fastest_lap"; driverId: string; lapTime: number }
+  | { seq: number; t: number; type: "info"; message: string };
 
 export interface QualifyingResult {
   driverId: string;
@@ -218,8 +221,11 @@ export interface CarSnapshot {
   blueFlag: boolean;
   lateral: number;
   hammerTime: HammerTimeSnapshot;
+  pushStrategy: PushStrategy;
   drsActive: boolean;
   tow: boolean;
+  lastLapTime: number | null;
+  bestLapTime: number | null;
 }
 
 export interface RaceSnapshot {
@@ -230,6 +236,7 @@ export interface RaceSnapshot {
   cars: CarSnapshot[];
   fastestLapDriverId: string | null;
   events: RaceEvent[];
+  eventSeq: number;
   heroId: string | null;
   weather: Weather;
   effectiveWeather: Weather;

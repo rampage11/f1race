@@ -1,6 +1,6 @@
 import { CONFIG } from "./config.js";
 import { compoundPaceBonusSec, gripFor, tyrePacePenaltySec } from "./tyres.js";
-import type { HammerMode, Skills, Track, TyreState, Weather } from "./types.js";
+import type { HammerMode, PushStrategy, Skills, Track, TyreState, Weather } from "./types.js";
 
 export function baseLapTime(track: Track): number {
   const raw = track.segments.reduce((t, seg) => t + seg.length / seg.targetSpeed, 0);
@@ -158,8 +158,12 @@ export function fatigueFactor(currentLap: number, totalLaps: number): number {
   return Math.min(1, (frac - onset) / (1 - onset));
 }
 
-export function pushLevelFor(strategy: "conservative" | "balanced" | "attack"): number {
+export function pushLevelFor(strategy: PushStrategy): number {
   return CONFIG.pace.pushLevel[strategy];
+}
+
+export function pushWearFor(strategy: PushStrategy): number {
+  return CONFIG.pace.pushWear[strategy];
 }
 
 export function xpForRace(args: {

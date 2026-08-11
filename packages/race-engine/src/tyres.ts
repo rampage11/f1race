@@ -18,8 +18,13 @@ export function gripFor(t: TyreState, weather: Weather = "dry"): number {
   const compoundGrip = CONFIG.weather.compoundWeatherGrip[t.compound][w];
   const raw = Math.min(1, t.wear);
   const isCliff = raw >= cfg.cliff;
+  const preCliffEnd = 1 - 0.03;
+  const cliffDrop = preCliffEnd - (1 - 0.35);
   const deg = Math.pow(raw / cfg.cliff, cfg.degCurve);
-  const base = isCliff ? cfg.gripFresh * (1 - 0.35 * Math.pow((raw - cfg.cliff) / (1 - cfg.cliff), 2)) : cfg.gripFresh * (1 - 0.03 * deg);
+  const cliffFactor = Math.pow((raw - cfg.cliff) / (1 - cfg.cliff), 2);
+  const base = isCliff
+    ? cfg.gripFresh * (preCliffEnd - cliffDrop * cliffFactor)
+    : cfg.gripFresh * (1 - 0.03 * deg);
   const gripFromWear = Math.max(CONFIG.tyres.minGrip, base);
   return gripFromWear * weatherGrip * compoundGrip;
 }

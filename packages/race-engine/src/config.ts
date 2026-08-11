@@ -44,6 +44,7 @@ export const CONFIG = {
     fatigueOnsetLapFrac: 0.45,
     noiseSigma: 0.012,
     pushLevel: { conservative: 0.985, balanced: 1.0, attack: 1.012 },
+    pushWear: { conservative: 0.85, balanced: 1.0, attack: 1.3 },
   },
 
   tyres: {
@@ -192,7 +193,7 @@ export const CONFIG = {
     mode: {
       attack: { cornering: 1.08, overtake: 1.45, defense: 1.0,  tyreWear: 2.4 },
       defend: { cornering: 1.12, overtake: 1.0,  defense: 1.50, tyreWear: 2.0 },
-      push:   { cornering: 1.30, overtake: 1.10, defense: 1.0,  tyreWear: 3.0 },
+      push:   { cornering: 1.18, overtake: 1.10, defense: 1.0,  tyreWear: 4.0 },
     },
   },
 
@@ -213,7 +214,7 @@ export const CONFIG = {
       intermediate: { dry: 1.5, lightRain: 0.7, heavyRain: 0.6 },
       wet:      { dry: 2.0, lightRain: 0.6, heavyRain: 0.5 },
     },
-    probability: { dry: 0.50, lightRain: 0.25, heavyRain: 0.10, variable: 0.15 },
+    probability: { dry: 0.40, lightRain: 0.25, heavyRain: 0.10, variable: 0.25 },
   },
 
   timeOfDay: {
@@ -238,11 +239,13 @@ export const CONFIG = {
   // budget = maxHumanSkillSum + divIndex*divIndexCoefficient + rand(-jitterSpread..jitterSpread),
   // and the first bot (the "rival") gets +rivalBonus to create a dragon to beat. divIndex:
   // F4=0, F3=1, F2=2, F1=3, so higher divisions field stronger fields on top of the player match.
+  // rivalBonus is a flat number applied uniformly across divisions; a smaller value keeps the
+  // rival beatable in F4 (where the player's budget is smallest) without making them a walkover.
   bots: {
     divIndexCoefficient: 3,
     jitterSpread: 5,
     jitterUp: 8,
-    rivalBonus: 10,
+    rivalBonus: 6,
     jitterMax: 5,
   },
 
@@ -250,7 +253,7 @@ export const CONFIG = {
   // afterwards a cooldownDays gate. Respec is point-neutral (the total skill sum is preserved,
   // only the distribution changes) so it can't be farmed for free points.
   respec: {
-    freeLevel: 10,
+    freeLevel: 4,
     cooldownDays: 30,
   },
 } as const;

@@ -23,19 +23,35 @@ export function recommendedLaps(
 
 void CONFIG;
 
-export function segmentIndexAtS(track: Track, s: number): { index: number; offset: number } {
-  const total = trackLengthM(track);
-  const norm = ((s % total) + total) % total;
+const segmentBoundariesCache = new WeakMap<Track, number[]>();
+
+export function segmentBoundaries(track: Track): number[] {
+  const cached = segmentBoundariesCache.get(track);
+  if (cached) return cached;
+  const cum: number[] = [0];
   let acc = 0;
-  for (let i = 0; i < track.segments.length; i++) {
-    const seg = track.segments[i]!;
-    if (norm < acc + seg.length) {
-      return { index: i, offset: norm - acc };
-    }
+  for (const seg of track.segments) {
     acc += seg.length;
+    cum.push(acc);
   }
-  const last = track.segments.length - 1;
-  return { index: last, offset: 0 };
+  segmentBoundariesCache.set(track, cum);
+  return cum;
+}
+
+export function segmentIndexAtS(track: Track, s: number): { index: number; offset: number } {
+  const cum = segmentBoundaries(track);
+  const total = cum[cum.length - 1]!;
+  const norm = ((s % total) + total) % total;
+  const n = track.segments.length;
+  let lo = 0;
+  let hi = n;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (cum[mid]! <= norm) lo = mid;
+    else hi = mid - 1;
+  }
+  const idx = Math.min(lo, n - 1);
+  return { index: idx, offset: norm - cum[idx]! };
 }
 
 export function segmentAtS(track: Track, s: number): TrackSegment {

@@ -1,5 +1,5 @@
 import { CONFIG } from "./config.js";
-import { fatigueFactor, paceSpeedMultiplier, passProbability, computeStartOutcome, startCategory } from "./formula.js";
+import { fatigueFactor, paceSpeedMultiplier, passProbability, pushLevelFor, pushWearFor, computeStartOutcome, startCategory } from "./formula.js";
 import { mulberry32, type Rng } from "./rng.js";
 import { freshTyre, gripFor, wearDeltaForLap, estimateTyreLifespanLaps } from "./tyres.js";
 import { overtakingScoreAround, segmentAtS, trackLengthKm, trackLengthM } from "./track.js";
@@ -8,6 +8,7 @@ import type {
   CarState,
   Driver,
   HammerMode,
+  PushStrategy,
   RaceConfig,
   RaceEvent,
   RaceResult,
@@ -19,6 +20,14 @@ import type {
 } from "./types.js";
 
 const PUSH_BALANCED = 1.0;
+
+// The discriminated RaceEvent union carries a `seq` on every variant (assigned centrally in
+// pushEvent). Callers build events WITHOUT seq; this maps the union member-for-member to the
+// "pre-seq" shape so pushEvent can stamp the monotonic counter without forcing every call site
+// to omit the field manually.
+type EmittedEvent = {
+  [K in RaceEvent["type"]]: Omit<Extract<RaceEvent, { type: K }>, "seq">
+}[RaceEvent["type"]];
 
 export interface EngineOptions {
   dt?: number;
@@ -40,6 +49,8 @@ export type HammerRequestResult =
   | "rejected_unknown_driver"
   | "rejected_not_racing";
 
+export type PushLevelResult = "set" | "rejected_unknown_driver" | "rejected_not_racing";
+
 export class RaceEngine {
   readonly config: RaceConfig;
   readonly cars: CarState[];
@@ -52,6 +63,7 @@ export class RaceEngine {
   fastestLapDriverId: string | null = null;
   private fastestLapTime = Number.POSITIVE_INFINITY;
   private events: RaceEvent[] = [];
+  private eventSeq = 0;
   private readonly dt: number;
   private readonly pitRequests = new Map<string, TyreCompound>();
   private readonly weather: Weather;
@@ -148,6 +160,7 @@ export class RaceEngine {
         hammerReadyAt: 0,
         hammerActiveSecThisLap: 0,
         hammerMode: null,
+        pushStrategy: "balanced",
         drsActiveUntil: 0,
         tow: false,
         launchMult,
@@ -159,8 +172,12 @@ export class RaceEngine {
     });
   }
 
-  private pushEvent(e: RaceEvent): void {
-    this.events.push(e);
+  private pushEvent(e: EmittedEvent): void {
+    this.events.push({ ...e, seq: ++this.eventSeq } as RaceEvent);
+  }
+
+  get currentEventSeq(): number {
+    return this.eventSeq;
   }
 
   private driverOf(car: CarState): Driver {
@@ -225,6 +242,15 @@ export class RaceEngine {
     car.hammerActiveUntil = this.time + CONFIG.HAMMER_TIME.durationSec;
     car.hammerReadyAt = this.time + CONFIG.HAMMER_TIME.durationSec + CONFIG.HAMMER_TIME.cooldownSec;
     return "activated";
+  }
+
+  requestPushLevel(driverId: string, strategy: PushStrategy): PushLevelResult {
+    if (this.phase !== "racing") return "rejected_not_racing";
+    const car = this.cars.find((c) => c.driverId === driverId);
+    if (!car) return "rejected_unknown_driver";
+    car.pushStrategy = strategy;
+    car.pushLevel = pushLevelFor(strategy);
+    return "set";
   }
 
   private stepCar(car: CarState, dt: number): void {
@@ -313,10 +339,10 @@ export class RaceEngine {
         const wearMode = hammerFrac > 0 ? car.hammerMode : null;
         const wearBase = wearMode ? CONFIG.HAMMER_TIME.mode[wearMode].tyreWear : 1;
         const wearMult = 1 + hammerFrac * (wearBase - 1);
-        const wear = wearDeltaForLap(car.tyre, this.lapLengthKm, driver.skills.tyreMgmt, this.effectiveWeather) * wearMult;
+        const wear = wearDeltaForLap(car.tyre, this.lapLengthKm, driver.skills.tyreMgmt, this.effectiveWeather) * wearMult * pushWearFor(car.pushStrategy);
         car.tyre.wear = Math.min(1, car.tyre.wear + wear);
         car.hammerActiveSecThisLap = 0;
-        if (completingLap >= CONFIG.mechanicalFailure.minLap && this.failureRng.bool(CONFIG.mechanicalFailure.basePerLap)) {
+        if (driver.kind === "bot" && completingLap >= CONFIG.mechanicalFailure.minLap && this.failureRng.bool(CONFIG.mechanicalFailure.basePerLap)) {
           car.dnf = true;
           this.pushEvent({ t: this.time, type: "info", message: `${this.driverOf(car).name}: сход (механика)` });
           return;
@@ -431,6 +457,10 @@ export class RaceEngine {
       if (car.pitTimer <= 0) {
         car.inPits = false;
         car.pitTimer = 0;
+        // Reset push level to balanced on fresh rubber; the server re-applies the committed
+        // per-stint strategy after the pit completes (player commits at pit-time, not mid-stop).
+        car.pushLevel = PUSH_BALANCED;
+        car.pushStrategy = "balanced";
         const nextLineS = (Math.floor(car.s / this.length) + 1) * this.length;
         car.s = nextLineS + this.config.track.pitExitS;
         car.v = CONFIG.physics.pitApproachSpeed;
@@ -667,9 +697,9 @@ export class RaceEngine {
     const rows: RaceResultRow[] = ranked.map((c, i) => {
       const noStop = c.tyreStops < 1;
       const wrongCompound = !c.compoundChanged;
-      if (noStop && c.finishPlace == null) {
+      if (noStop) {
         this.pushEvent({ t: this.time, type: "info", message: `${this.driverOf(c).name}: дисквалификация — не заехал в боксы` });
-      } else if (!noStop && wrongCompound && c.finishPlace == null) {
+      } else if (wrongCompound) {
         this.pushEvent({ t: this.time, type: "info", message: `${this.driverOf(c).name}: штраф 30с — не сменён состав резины` });
       }
       const dsq = noStop;
@@ -684,13 +714,16 @@ export class RaceEngine {
         gapToLeader: dsq ? 0 : Math.max(0, c.raceTime + compoundPenalty - leaderTime),
         tyreStops: c.tyreStops,
         fastestLap: !dsq && this.fastestLapDriverId === c.driverId,
-        positionsGained: Math.max(0, c.gridPosition - (c.finishPlace ?? i + 1)),
+        positionsGained: 0,
         gridPosition: c.gridPosition,
         dnf: dsq || c.dnf,
       };
     });
     rows.sort((a, b) => a.raceTime - b.raceTime);
-    rows.forEach((r, i) => (r.place = i + 1));
+    rows.forEach((r, i) => {
+      r.place = i + 1;
+      r.positionsGained = Math.max(0, r.gridPosition - r.place);
+    });
     return { rows, fastestLapDriverId: this.fastestLapDriverId, events: this.events };
   }
 
@@ -740,6 +773,9 @@ export class RaceEngine {
         },
         drsActive: this.time < c.drsActiveUntil,
         tow: c.tow,
+        pushStrategy: c.pushStrategy,
+        lastLapTime: c.lastLapTime,
+        bestLapTime: c.bestLapTime,
       };
     });
     return {
@@ -749,7 +785,8 @@ export class RaceEngine {
       trackLengthM: this.length,
       cars,
       fastestLapDriverId: this.fastestLapDriverId,
-      events: this.events,
+      events: [...this.events],
+      eventSeq: this.eventSeq,
       heroId: this.config.heroId ?? null,
       weather: this.weather,
       effectiveWeather: this.effectiveWeather,

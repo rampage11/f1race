@@ -8,6 +8,7 @@ import type {
   Track,
   TyreCompound,
   TyreState,
+  Weather,
 } from "./types.js";
 
 export type QualyPhase = "waiting" | "outlap" | "hotlap" | "inlap" | "done";
@@ -75,6 +76,7 @@ export interface QualyConfig {
   startIntervalSec: number;
   tyre?: TyreCompound;
   segment?: QualySegment;
+  weather?: Weather;
 }
 
 const OUTLAP_PUSH = 0.82;
@@ -91,6 +93,7 @@ export class QualifyingEngine {
   phase: "running" | "finished" = "running";
   readonly segment: QualySegment;
   private readonly dt: number;
+  private readonly weather: Weather;
   private results: QualyResultRow[] = [];
 
   constructor(private config: QualyConfig) {
@@ -99,6 +102,7 @@ export class QualifyingEngine {
     this.length = trackLengthM(config.track);
     this.t0 = this.computeT0();
     this.dt = config.dt;
+    this.weather = config.weather ?? "dry";
     this.segment = config.segment ?? { id: "Q1", name: "Q1" };
     this.cars = config.drivers.map((d, i) => this.buildCar(d, i));
   }
@@ -172,6 +176,7 @@ export class QualifyingEngine {
       tyre: car.tyre,
       t0: this.t0,
       noise: car.noiseFactor,
+      weather: this.weather,
     });
     const vTarget = this.lookaheadSpeed(sNorm, paceMult);
     if (car.v < vTarget) car.v = Math.min(vTarget, car.v + CONFIG.physics.maxAccel * dt);
@@ -294,6 +299,7 @@ export function buildQualyConfig(args: {
   startIntervalSec?: number;
   tyre?: TyreCompound;
   segment?: QualySegment;
+  weather?: Weather;
 }): QualyConfig {
   const cfg: QualyConfig = {
     track: args.track,
@@ -304,5 +310,6 @@ export function buildQualyConfig(args: {
   };
   if (args.tyre) cfg.tyre = args.tyre;
   if (args.segment) cfg.segment = args.segment;
+  if (args.weather) cfg.weather = args.weather;
   return cfg;
 }
