@@ -69,6 +69,7 @@ export function profileSummaryFrom(p: DriverProfile): DriverProfileSummary {
     racesCount: p.racesCount,
     tutorialCompleted: p.tutorialCompleted ?? true,
     unspentSkillPoints: p.unspentSkillPoints ?? 0,
+    softCurrency: p.softCurrency ?? 0,
   };
 }
 

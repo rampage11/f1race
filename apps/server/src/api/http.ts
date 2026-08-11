@@ -6,6 +6,7 @@ import {
   divisionForRating,
   driverRating,
   levelFromXp,
+  levelUpPointsAccrued,
   skillSum,
   trainingDurationSec,
   validateRespecAllocation,
@@ -16,8 +17,11 @@ import {
 } from "@f1race/race-engine";
 import { verifySessionToken } from "../auth/session.js";
 import { profileSummaryFrom } from "../auth/yandex.js";
-import type { Division, DriverProfile, DriverProfileRepository, LeaderboardResult, TrainingJob } from "../persistence/repository.js";
+import type { Division, DriverProfile, DriverProfileRepository, LeaderboardResult, QuestAssignment, QuestAssignmentView, TrainingJob, CareerStats, OwnedCosmetics } from "../persistence/repository.js";
 import type { DriverProfileSummary } from "../protocol.js";
+import { pickDailyQuestIds, questById } from "../quests.js";
+import { COSMETICS, cosmeticById, type EquippedCosmetics } from "../cosmetics.js";
+import { currentSeasonWeek, msUntilWeekReset } from "../season.js";
 import { corsHeaders, readJsonBody, sendJson } from "../http-util.js";
 
 const DIVISIONS: readonly Division[] = ["F4", "F3", "F2", "F1"];
@@ -117,6 +121,9 @@ export async function handleApiRequest(
   // GET /api/leaderboard?division=F4&limit=50 — top profiles in a division by driverRating,
   // plus the viewer's own rank (`me`) when authed. division defaults to the viewer's; limit
   // clamped to [1, 100]. Only heroConfirmed profiles appear.
+  //   ?season=current — scopes the ranking to the current weekly season (S3-1): SUM(xpGained)
+  //   from race_history within the Monday-start UTC week. The response carries a `season`
+  //   object (label + reset instant) so the client can render a countdown.
   if (method === "GET" && path === "/api/leaderboard") {
     const query = new URL(url, "http://localhost").searchParams;
     const viewer = requireProfile(req, env);
@@ -130,12 +137,32 @@ export async function handleApiRequest(
       division = "F4";
     }
     const limit = clampInt(query.get("limit"), 50, 1, 100);
-    const result: LeaderboardResult = env.repository.leaderboard(
-      division,
-      limit,
-      viewer?.guestId,
-    );
+    let result: LeaderboardResult;
+    if (query.get("season") === "current") {
+      const week = currentSeasonWeek();
+      result = env.repository.weeklyLeaderboard(
+        division,
+        week.weekStart,
+        week.weekEnd,
+        limit,
+        { label: week.label, weekStart: week.weekStart, weekEnd: week.weekEnd, resetAt: Date.now() + msUntilWeekReset() },
+        viewer?.guestId,
+      );
+    } else {
+      result = env.repository.leaderboard(division, limit, viewer?.guestId);
+    }
     sendJson(res, 200, result, env.allowedOrigin);
+    return true;
+  }
+
+  // GET /api/stats — the viewer's own career aggregate over race_history (S2-5). Authed
+  // (it's the viewer's own data); 401 on missing/invalid bearer. Empty history → zeroed
+  // counters with null best/average.
+  if (method === "GET" && path === "/api/stats") {
+    const viewer = requireProfile(req, env);
+    if (!viewer) return sendJson401(res, env), true;
+    const stats: CareerStats = env.repository.getStats(viewer.guestId);
+    sendJson(res, 200, { stats }, env.allowedOrigin);
     return true;
   }
 
@@ -304,12 +331,190 @@ export async function handleApiRequest(
       }
       const durationSec = trainingDurationSec(currentLevel, levelFromXp(profile.totalXp));
       active = env.repository.startTraining(profile.guestId, skill, now, durationSec);
+      // S2-9: a started training ticks the start_training daily quest (lazy-assign first so the
+      // progress is captured even if the quests panel was never opened today).
+      const today = Math.floor(now / 86_400_000);
+      env.repository.assignDailyQuests(profile.guestId, today, pickDailyQuestIds(profile.guestId, today));
+      env.repository.incrementQuestProgress(profile.guestId, "start_training", today, 1);
       sendJson(res, 200, buildResponse(env, profile, active, now, justCompleted), env.allowedOrigin);
       return true;
     }
   }
 
+  // --- Daily quests (S2-9) ---
+  if ((method === "GET" || method === "POST") && path.startsWith("/api/quests")) {
+    const profile = requireProfile(req, env);
+    if (!profile) return sendJson401(res, env), true;
+    if (!profile.heroConfirmed) {
+      sendJson(res, 403, { error: "confirm your pilot first" }, env.allowedOrigin);
+      return true;
+    }
+    const today = Math.floor(Date.now() / 86_400_000);
+
+    // GET /api/quests/state — lazy-assign today's QUESTS_PER_DAY quests (idempotent) and return
+    // their progress joined with the catalog definition (desc/goal). Always returns 3 entries.
+    if (method === "GET" && path === "/api/quests/state") {
+      const ids = pickDailyQuestIds(profile.guestId, today);
+      const assigned = env.repository.assignDailyQuests(profile.guestId, today, ids);
+      sendJson(res, 200, { quests: questViews(assigned), profile: profileSummaryFrom(profile) }, env.allowedOrigin);
+      return true;
+    }
+
+    // POST /api/quests/claim { questDefId } — atomically mark a quest claimed, then award its
+    // xp + currency. 409 if not complete / already claimed / not assigned today / unknown def.
+    if (method === "POST" && path === "/api/quests/claim") {
+      const body = await readJsonBody(req);
+      if (!body || typeof body !== "object") {
+        sendJson(res, 400, { error: "invalid request body" }, env.allowedOrigin);
+        return true;
+      }
+      const questDefId = (body as { questDefId?: unknown }).questDefId;
+      if (typeof questDefId !== "string") {
+        sendJson(res, 400, { error: "questDefId required" }, env.allowedOrigin);
+        return true;
+      }
+      const def = questById(questDefId);
+      if (!def) {
+        sendJson(res, 404, { error: "unknown quest" }, env.allowedOrigin);
+        return true;
+      }
+      const claimed = env.repository.claimQuest(profile.guestId, questDefId, today, def.goal);
+      if (!claimed) {
+        sendJson(res, 409, { error: "quest not complete or already claimed" }, env.allowedOrigin);
+        return true;
+      }
+      profile.totalXp += def.xp;
+      profile.softCurrency = (profile.softCurrency ?? 0) + def.currency;
+      profile.unspentSkillPoints = (profile.unspentSkillPoints ?? 0) + levelUpPointsAccrued(profile.totalXp - def.xp, profile.totalXp);
+      profile.updatedAt = Date.now();
+      env.repository.upsert(profile);
+      const assigned = env.repository.getActiveQuests(profile.guestId, today);
+      sendJson(
+        res,
+        200,
+        { quests: questViews(assigned), profile: profileSummaryFrom(profile), claimed: { questDefId, xp: def.xp, currency: def.currency } },
+        env.allowedOrigin,
+      );
+      return true;
+    }
+  }
+
+  // --- Cosmetics (S3-2 / S3-4) ---
+  // GET /api/cosmetics/catalog — static, public (no auth) so it's cacheable/shareable.
+  if (method === "GET" && path === "/api/cosmetics/catalog") {
+    sendJson(res, 200, { catalog: COSMETICS }, env.allowedOrigin);
+    return true;
+  }
+
+  if ((method === "GET" || method === "POST") && path.startsWith("/api/cosmetics/")) {
+    const profile = requireProfile(req, env);
+    if (!profile) return sendJson401(res, env), true;
+    if (!profile.heroConfirmed) {
+      sendJson(res, 403, { error: "confirm your pilot first" }, env.allowedOrigin);
+      return true;
+    }
+
+    // GET /api/cosmetics/owned — the viewer's owned unlockIds + currently equipped map + wallet.
+    if (method === "GET" && path === "/api/cosmetics/owned") {
+      sendJson(res, 200, cosmeticsDto(env, profile), env.allowedOrigin);
+      return true;
+    }
+
+    // POST /api/cosmetics/buy { unlockId } — validate the level gate + currency, deduct, insert.
+    if (method === "POST" && path === "/api/cosmetics/buy") {
+      const body = await readJsonBody(req);
+      if (!body || typeof body !== "object") {
+        sendJson(res, 400, { error: "invalid request body" }, env.allowedOrigin);
+        return true;
+      }
+      const unlockId = (body as { unlockId?: unknown }).unlockId;
+      if (typeof unlockId !== "string") {
+        sendJson(res, 400, { error: "unlockId required" }, env.allowedOrigin);
+        return true;
+      }
+      const def = cosmeticById(unlockId);
+      if (!def) {
+        sendJson(res, 404, { error: "unknown cosmetic" }, env.allowedOrigin);
+        return true;
+      }
+      const owned = env.repository.getOwnedCosmetics(profile.guestId);
+      if (owned.owned.includes(unlockId)) {
+        sendJson(res, 409, { error: "already owned" }, env.allowedOrigin);
+        return true;
+      }
+      const level = levelFromXp(profile.totalXp);
+      if (level < def.level) {
+        sendJson(res, 403, { error: `unlocks at level ${def.level}` }, env.allowedOrigin);
+        return true;
+      }
+      const wallet = profile.softCurrency ?? 0;
+      if (wallet < def.cost) {
+        sendJson(res, 402, { error: "not enough soft currency" }, env.allowedOrigin);
+        return true;
+      }
+      profile.softCurrency = wallet - def.cost;
+      profile.updatedAt = Date.now();
+      env.repository.upsert(profile);
+      env.repository.addOwnedCosmetic(profile.guestId, unlockId);
+      sendJson(res, 200, cosmeticsDto(env, profile), env.allowedOrigin);
+      return true;
+    }
+
+    // POST /api/cosmetics/equip { unlockId } — validate owned, persist the equipped slot.
+    if (method === "POST" && path === "/api/cosmetics/equip") {
+      const body = await readJsonBody(req);
+      if (!body || typeof body !== "object") {
+        sendJson(res, 400, { error: "invalid request body" }, env.allowedOrigin);
+        return true;
+      }
+      const unlockId = (body as { unlockId?: unknown }).unlockId;
+      if (typeof unlockId !== "string") {
+        sendJson(res, 400, { error: "unlockId required" }, env.allowedOrigin);
+        return true;
+      }
+      const def = cosmeticById(unlockId);
+      if (!def) {
+        sendJson(res, 404, { error: "unknown cosmetic" }, env.allowedOrigin);
+        return true;
+      }
+      if (!env.repository.hasOwnedCosmetic(profile.guestId, unlockId)) {
+        sendJson(res, 403, { error: "not owned" }, env.allowedOrigin);
+        return true;
+      }
+      const equipped: EquippedCosmetics = { ...(profile.equippedCosmetics ?? {}) };
+      equipped[def.type] = unlockId;
+      profile.equippedCosmetics = equipped;
+      profile.updatedAt = Date.now();
+      env.repository.upsert(profile);
+      sendJson(res, 200, cosmeticsDto(env, profile), env.allowedOrigin);
+      return true;
+    }
+  }
+
   return false;
+}
+
+function questViews(assigned: QuestAssignment[]): QuestAssignmentView[] {
+  return assigned.map((a) => {
+    const def = questById(a.questDefId);
+    return {
+      questDefId: a.questDefId,
+      desc: def?.desc ?? a.questDefId,
+      goal: def?.goal ?? 1,
+      progress: a.progress,
+      claimed: a.claimedAt != null,
+    };
+  });
+}
+
+function cosmeticsDto(env: ApiEnv, profile: DriverProfile): { owned: string[]; equipped: EquippedCosmetics; softCurrency: number; profile: DriverProfileSummary } {
+  const owned: OwnedCosmetics = env.repository.getOwnedCosmetics(profile.guestId);
+  return {
+    owned: owned.owned,
+    equipped: owned.equipped,
+    softCurrency: profile.softCurrency ?? 0,
+    profile: profileSummaryFrom(profile),
+  };
 }
 
 function sendJson401(res: ServerResponse, env: ApiEnv): void {
@@ -337,7 +542,7 @@ function clampInt(raw: string | null, def: number, min: number, max: number): nu
   return Math.max(min, Math.min(max, n));
 }
 
-function isValidHero(v: unknown): v is PilotProfile {
+export function isValidHero(v: unknown): v is PilotProfile {
   if (!v || typeof v !== "object") return false;
   const o = v as Record<string, unknown>;
   if (typeof o.name !== "string" || typeof o.country !== "string" || typeof o.team !== "string") return false;

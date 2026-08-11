@@ -2,12 +2,17 @@ import Database from "better-sqlite3";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { ABSOLUTE_SKILL_MAX, clampSkill, divisionForRating, driverRating, levelFromXp, levelUpPointsAccrued, skillSum, type PilotProfile, type SkillKey } from "@f1race/race-engine";
+import { parseEquipped, serializeEquipped } from "../cosmetics.js";
 import type {
+  CareerStats,
   Division,
   DriverProfile,
   DriverProfileRepository,
   LeaderboardResult,
   LeaderboardRow,
+  OwnedCosmetics,
+  QuestAssignment,
+  QuestAssignmentView,
   RaceHistoryRow,
   TrainingJob,
 } from "./repository.js";
@@ -22,6 +27,10 @@ interface ProfileRow {
   lastRespecAt: number | null;
   tutorialCompleted: number;
   unspentSkillPoints: number;
+  lastRaceDay: number | null;
+  streakDays: number;
+  softCurrency: number;
+  equippedCosmetics: string | null;
   level: number;
   driverRating: number;
   division: string | null;
@@ -40,6 +49,18 @@ interface HistoryRow {
   dnf: number;
 }
 
+interface StatsAggregateRow {
+  totalRaces: number;
+  wins: number;
+  poles: number;
+  podiums: number;
+  bestFinish: number | null;
+  avgPlaceSum: number;
+  avgPlaceNonDnf: number;
+  dnfCount: number;
+  totalXpGained: number;
+}
+
 interface TrainingRow {
   id: number;
   profileId: string;
@@ -56,6 +77,7 @@ interface LeaderboardQueryRow {
   racesCount: number;
   level: number;
   driverRating: number;
+  xpGain?: number;
 }
 
 interface ViewerQueryRow extends LeaderboardQueryRow {
@@ -63,9 +85,27 @@ interface ViewerQueryRow extends LeaderboardQueryRow {
   heroConfirmed: number;
 }
 
+interface QuestRow {
+  profileId: string;
+  questDefId: string;
+  assignedDay: number;
+  progress: number;
+  claimedAt: number | null;
+}
+
+function toQuest(r: QuestRow): QuestAssignment {
+  return {
+    profileId: r.profileId,
+    questDefId: r.questDefId,
+    assignedDay: r.assignedDay,
+    progress: r.progress,
+    claimedAt: r.claimedAt,
+  };
+}
+
 function toLeaderboardRow(r: LeaderboardQueryRow, rank: number): LeaderboardRow {
   const hero = JSON.parse(r.hero) as PilotProfile;
-  return {
+  const row: LeaderboardRow = {
     rank,
     guestId: r.guestId,
     name: hero.name,
@@ -75,6 +115,8 @@ function toLeaderboardRow(r: LeaderboardQueryRow, rank: number): LeaderboardRow 
     driverRating: r.driverRating,
     racesCount: r.racesCount,
   };
+  if (typeof r.xpGain === "number") row.xpGained = r.xpGain;
+  return row;
 }
 
 function toProfile(r: ProfileRow): DriverProfile {
@@ -88,6 +130,10 @@ function toProfile(r: ProfileRow): DriverProfile {
     lastRespecAt: r.lastRespecAt,
     tutorialCompleted: r.tutorialCompleted !== 0,
     unspentSkillPoints: r.unspentSkillPoints,
+    lastRaceDay: r.lastRaceDay ?? undefined,
+    streakDays: r.streakDays ?? undefined,
+    softCurrency: r.softCurrency ?? 0,
+    equippedCosmetics: parseEquipped(r.equippedCosmetics),
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
   };
@@ -118,7 +164,20 @@ export class SqliteDriverProfileRepository implements DriverProfileRepository {
   private stmtLeaderboard: Database.Statement;
   private stmtViewerRow: Database.Statement;
   private stmtViewerRank: Database.Statement;
+  private stmtStats: Database.Statement;
+  private stmtPing: Database.Statement;
   private txCompleteTraining: (training: TrainingJob, profile: DriverProfile) => void;
+  private stmtWeeklyLeaderboard: Database.Statement;
+  private stmtWeeklyViewerRow: Database.Statement;
+  private stmtWeeklyViewerRank: Database.Statement;
+  private stmtGetActiveQuests: Database.Statement;
+  private stmtGetOneQuest: Database.Statement;
+  private stmtInsertQuest: Database.Statement;
+  private stmtIncQuest: Database.Statement;
+  private stmtClaimQuest: Database.Statement;
+  private stmtOwnedCosmetics: Database.Statement;
+  private stmtHasCosmetic: Database.Statement;
+  private stmtInsertCosmetic: Database.Statement;
 
   constructor(dbPath: string) {
     if (dbPath !== ":memory:") mkdirSync(dirname(dbPath), { recursive: true });
@@ -157,6 +216,19 @@ export class SqliteDriverProfileRepository implements DriverProfileRepository {
         completedAt INTEGER,
         FOREIGN KEY (profileId) REFERENCES profiles(guestId)
       );
+      CREATE TABLE IF NOT EXISTS quests (
+        profileId TEXT NOT NULL,
+        questDefId TEXT NOT NULL,
+        assignedDay INTEGER NOT NULL,
+        progress INTEGER NOT NULL DEFAULT 0,
+        claimedAt INTEGER,
+        PRIMARY KEY(profileId, questDefId, assignedDay)
+      );
+      CREATE TABLE IF NOT EXISTS unlocks (
+        profileId TEXT NOT NULL,
+        unlockId TEXT NOT NULL,
+        PRIMARY KEY(profileId, unlockId)
+      );
     `);
     // Idempotent column migration: pre-existing profiles tables predate heroConfirmed.
     // A profile that already existed is treated as already confirmed (DEFAULT 1) so legacy
@@ -187,17 +259,39 @@ export class SqliteDriverProfileRepository implements DriverProfileRepository {
     if (!cols.some((c) => c.name === "unspentSkillPoints")) {
       this.db.exec("ALTER TABLE profiles ADD COLUMN unspentSkillPoints INTEGER NOT NULL DEFAULT 0");
     }
+    // S2-10 daily streak columns. lastRaceDay is the UTC day number of the most recent race;
+    // streakDays the consecutive-day count (capped at 7). NULL/0 for legacy rows → no streak
+    // until the first new race populates them.
+    if (!cols.some((c) => c.name === "lastRaceDay")) {
+      this.db.exec("ALTER TABLE profiles ADD COLUMN lastRaceDay INTEGER");
+    }
+    if (!cols.some((c) => c.name === "streakDays")) {
+      this.db.exec("ALTER TABLE profiles ADD COLUMN streakDays INTEGER NOT NULL DEFAULT 0");
+    }
+    // S3-4 earnable soft currency. Default 0; awarded by races/quests, spent on cosmetics.
+    if (!cols.some((c) => c.name === "softCurrency")) {
+      this.db.exec("ALTER TABLE profiles ADD COLUMN softCurrency INTEGER NOT NULL DEFAULT 0");
+    }
+    // S3-2 equipped cosmetics map (JSON text: { accentColor?: id, carNumber?: id }). NULL/empty
+    // for legacy rows → nothing equipped (the client falls back to defaults).
+    if (!cols.some((c) => c.name === "equippedCosmetics")) {
+      this.db.exec("ALTER TABLE profiles ADD COLUMN equippedCosmetics TEXT");
+    }
     this.db.exec(
       "CREATE INDEX IF NOT EXISTS idx_profiles_division_rating ON profiles(division, driverRating DESC, totalXp DESC)",
     );
     this.db.exec(
       "CREATE INDEX IF NOT EXISTS idx_trainings_profile ON trainings(profileId, completedAt)",
     );
+    // Weekly leaderboard lookup: race_history rows in a week for one division's profiles.
+    this.db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_race_history_finished ON race_history(finishedAt)",
+    );
 
     this.stmtGet = this.db.prepare("SELECT * FROM profiles WHERE guestId = ?");
     this.stmtUpsert = this.db.prepare(`
-      INSERT INTO profiles (guestId, hero, totalXp, racesCount, heroConfirmed, freeRespecUsed, lastRespecAt, tutorialCompleted, unspentSkillPoints, level, driverRating, division, createdAt, updatedAt)
-      VALUES (@guestId, @hero, @totalXp, @racesCount, @heroConfirmed, @freeRespecUsed, @lastRespecAt, @tutorialCompleted, @unspentSkillPoints, @level, @driverRating, @division, @createdAt, @updatedAt)
+      INSERT INTO profiles (guestId, hero, totalXp, racesCount, heroConfirmed, freeRespecUsed, lastRespecAt, tutorialCompleted, unspentSkillPoints, lastRaceDay, streakDays, softCurrency, equippedCosmetics, level, driverRating, division, createdAt, updatedAt)
+      VALUES (@guestId, @hero, @totalXp, @racesCount, @heroConfirmed, @freeRespecUsed, @lastRespecAt, @tutorialCompleted, @unspentSkillPoints, @lastRaceDay, @streakDays, @softCurrency, @equippedCosmetics, @level, @driverRating, @division, @createdAt, @updatedAt)
       ON CONFLICT(guestId) DO UPDATE SET
         hero = excluded.hero,
         totalXp = excluded.totalXp,
@@ -207,6 +301,10 @@ export class SqliteDriverProfileRepository implements DriverProfileRepository {
         lastRespecAt = excluded.lastRespecAt,
         tutorialCompleted = excluded.tutorialCompleted,
         unspentSkillPoints = excluded.unspentSkillPoints,
+        lastRaceDay = excluded.lastRaceDay,
+        streakDays = excluded.streakDays,
+        softCurrency = excluded.softCurrency,
+        equippedCosmetics = excluded.equippedCosmetics,
         level = excluded.level,
         driverRating = excluded.driverRating,
         division = excluded.division,
@@ -271,6 +369,91 @@ export class SqliteDriverProfileRepository implements DriverProfileRepository {
          driverRating > ? OR (driverRating = ? AND totalXp > ?)
        )`,
     );
+    // S2-5 career aggregate over race_history. AVG/MIN over finishers only (dnf=0) so a
+    // DSQ does not pollute the average finish / best finish; place IS NOT NULL excludes
+    // pre-migration oddities. NULLIF/MIN handles an empty table (no rows → NULL/0).
+    this.stmtStats = this.db.prepare(
+      `SELECT
+         COUNT(*) AS totalRaces,
+         COALESCE(SUM(CASE WHEN place = 1 THEN 1 ELSE 0 END), 0) AS wins,
+         COALESCE(SUM(CASE WHEN gridPosition = 1 THEN 1 ELSE 0 END), 0) AS poles,
+         COALESCE(SUM(CASE WHEN place <= 3 THEN 1 ELSE 0 END), 0) AS podiums,
+         MIN(place) AS bestFinish,
+         COALESCE(SUM(CASE WHEN dnf = 0 THEN place ELSE 0 END), 0) AS avgPlaceSum,
+         COALESCE(SUM(CASE WHEN dnf = 0 THEN 1 ELSE 0 END), 0) AS avgPlaceNonDnf,
+         COALESCE(SUM(CASE WHEN dnf = 1 THEN 1 ELSE 0 END), 0) AS dnfCount,
+         COALESCE(SUM(xpGained), 0) AS totalXpGained
+       FROM race_history
+       WHERE profileId = ?`,
+    );
+    this.stmtPing = this.db.prepare("SELECT 1");
+
+    // S3-1 weekly leaderboard: SUM(xpGained) over race_history within the week, joined to
+    // profiles for division/hero/level. Ordered by gain desc, then driverRating as a tiebreak
+    // so an established pilot edges out a brand-new one on equal weekly XP.
+    // Positional ? placeholders (better-sqlite3 only accepts @/$/: named params or
+    // positional ? — never the bare ?name form the prior draft used, which threw at prepare).
+    this.stmtWeeklyLeaderboard = this.db.prepare(
+      `SELECT rh.profileId AS guestId, p.hero AS hero, p.totalXp AS totalXp,
+              p.racesCount AS racesCount, p.level AS level, p.driverRating AS driverRating,
+              COALESCE(SUM(rh.xpGained), 0) AS xpGain
+       FROM race_history rh
+       JOIN profiles p ON p.guestId = rh.profileId
+       WHERE rh.finishedAt >= ? AND rh.finishedAt <= ?
+         AND p.division = ? AND p.heroConfirmed = 1
+       GROUP BY rh.profileId
+       ORDER BY xpGain DESC, p.driverRating DESC, p.totalXp DESC, rh.profileId ASC
+       LIMIT ?`,
+    );
+    this.stmtWeeklyViewerRow = this.db.prepare(
+      `SELECT rh.profileId AS guestId, p.hero AS hero, p.totalXp AS totalXp,
+              p.racesCount AS racesCount, p.level AS level, p.driverRating AS driverRating,
+              COALESCE(SUM(rh.xpGained), 0) AS xpGain
+       FROM race_history rh
+       JOIN profiles p ON p.guestId = rh.profileId
+       WHERE rh.finishedAt >= ? AND rh.finishedAt <= ?
+         AND rh.profileId = ?
+       GROUP BY rh.profileId`,
+    );
+    this.stmtWeeklyViewerRank = this.db.prepare(
+      `SELECT COUNT(*) + 1 AS rank FROM (
+         SELECT rh.profileId AS gid, COALESCE(SUM(rh.xpGained), 0) AS gain
+         FROM race_history rh
+         JOIN profiles p ON p.guestId = rh.profileId
+         WHERE rh.finishedAt >= ? AND rh.finishedAt <= ?
+           AND p.division = ? AND p.heroConfirmed = 1
+         GROUP BY rh.profileId
+         HAVING gain > ? OR (gain = ? AND rh.profileId < ?)
+       )`,
+    );
+
+    // S2-9 daily quests.
+    this.stmtGetActiveQuests = this.db.prepare(
+      "SELECT * FROM quests WHERE profileId = ? AND assignedDay = ? ORDER BY questDefId ASC",
+    );
+    this.stmtGetOneQuest = this.db.prepare(
+      "SELECT * FROM quests WHERE profileId = ? AND questDefId = ? AND assignedDay = ?",
+    );
+    this.stmtInsertQuest = this.db.prepare(
+      "INSERT OR IGNORE INTO quests (profileId, questDefId, assignedDay, progress, claimedAt) VALUES (?, ?, ?, 0, NULL)",
+    );
+    this.stmtIncQuest = this.db.prepare(
+      "UPDATE quests SET progress = progress + ? WHERE profileId = ? AND questDefId = ? AND assignedDay = ? AND claimedAt IS NULL",
+    );
+    this.stmtClaimQuest = this.db.prepare(
+      "UPDATE quests SET claimedAt = ? WHERE profileId = ? AND questDefId = ? AND assignedDay = ? AND claimedAt IS NULL AND progress >= ?",
+    );
+
+    // S3-2 / S3-4 cosmetics.
+    this.stmtOwnedCosmetics = this.db.prepare(
+      "SELECT unlockId FROM unlocks WHERE profileId = ? ORDER BY unlockId ASC",
+    );
+    this.stmtHasCosmetic = this.db.prepare(
+      "SELECT 1 FROM unlocks WHERE profileId = ? AND unlockId = ?",
+    );
+    this.stmtInsertCosmetic = this.db.prepare(
+      "INSERT OR IGNORE INTO unlocks (profileId, unlockId) VALUES (?, ?)",
+    );
   }
 
   private profileParams(profile: DriverProfile) {
@@ -287,6 +470,10 @@ export class SqliteDriverProfileRepository implements DriverProfileRepository {
       lastRespecAt: profile.lastRespecAt ?? null,
       tutorialCompleted: (profile.tutorialCompleted ?? true) ? 1 : 0,
       unspentSkillPoints: profile.unspentSkillPoints ?? 0,
+      lastRaceDay: profile.lastRaceDay ?? null,
+      streakDays: profile.streakDays ?? 0,
+      softCurrency: profile.softCurrency ?? 0,
+      equippedCosmetics: serializeEquipped(profile.equippedCosmetics ?? {}),
       level,
       driverRating: rating,
       division,
@@ -373,6 +560,44 @@ export class SqliteDriverProfileRepository implements DriverProfileRepository {
     return me ? { division, rows, me } : { division, rows };
   }
 
+  weeklyLeaderboard(
+    division: Division,
+    weekStart: number,
+    weekEnd: number,
+    limit: number,
+    season: { label: string; weekStart: number; weekEnd: number; resetAt: number },
+    viewerGuestId?: string,
+  ): LeaderboardResult {
+    const capped = Math.max(1, Math.min(100, Math.floor(limit)));
+    const top = this.stmtWeeklyLeaderboard.all(weekStart, weekEnd, division, capped) as
+      | LeaderboardQueryRow[]
+      | undefined;
+    const rows: LeaderboardRow[] = (top ?? []).map((r, i) => toLeaderboardRow(r, i + 1));
+    let me: LeaderboardRow | undefined;
+    if (viewerGuestId) {
+      const v = this.stmtWeeklyViewerRow.get(weekStart, weekEnd, viewerGuestId) as
+        | (LeaderboardQueryRow & { division?: string | null })
+        | undefined;
+      // Confirm the viewer is in this division (the weekly viewer row intentionally does not
+      // filter by division so we can detect "raced but wrong division" cleanly).
+      const vDiv = this.stmtViewerRow.get(viewerGuestId) as ViewerQueryRow | undefined;
+      if (v && vDiv && vDiv.division === division && vDiv.heroConfirmed !== 0) {
+        const myGain = v.xpGain ?? 0;
+        const rankRow = this.stmtWeeklyViewerRank.get(
+          weekStart,
+          weekEnd,
+          division,
+          myGain,
+          myGain,
+          viewerGuestId,
+        ) as { rank: number } | undefined;
+        const rank = rankRow?.rank ?? 1;
+        me = toLeaderboardRow(v, rank);
+      }
+    }
+    return me ? { division, rows, me, season } : { division, rows, season };
+  }
+
   markTutorialCompleted(profile: DriverProfile, xpBonus: number): void {
     const oldXp = profile.totalXp;
     profile.tutorialCompleted = true;
@@ -395,6 +620,82 @@ export class SqliteDriverProfileRepository implements DriverProfileRepository {
     profile.updatedAt = Date.now();
     this.upsert(profile);
     return true;
+  }
+
+  getStats(profileId: string): CareerStats {
+    const r = this.stmtStats.get(profileId) as StatsAggregateRow;
+    const total = r.totalRaces ?? 0;
+    const nonDnf = r.avgPlaceNonDnf ?? 0;
+    return {
+      totalRaces: total,
+      wins: r.wins ?? 0,
+      poles: r.poles ?? 0,
+      podiums: r.podiums ?? 0,
+      bestFinish: r.bestFinish ?? null,
+      averagePlace: nonDnf > 0 ? r.avgPlaceSum / nonDnf : null,
+      dnfCount: r.dnfCount ?? 0,
+      totalXpGained: r.totalXpGained ?? 0,
+    };
+  }
+
+  getActiveQuests(profileId: string, assignedDay: number): QuestAssignment[] {
+    const rows = this.stmtGetActiveQuests.all(profileId, assignedDay) as QuestRow[];
+    return rows.map(toQuest);
+  }
+
+  assignDailyQuests(profileId: string, assignedDay: number, questDefIds: string[]): QuestAssignment[] {
+    // INSERT OR IGNORE keeps this idempotent across same-day calls (the (profileId, questDefId,
+    // assignedDay) PK dedupes; a reconnect / second state read doesn't wipe progress).
+    const tx = this.db.transaction((ids: string[]) => {
+      for (const id of ids) this.stmtInsertQuest.run(profileId, id, assignedDay);
+    });
+    tx(questDefIds);
+    return this.getActiveQuests(profileId, assignedDay);
+  }
+
+  incrementQuestProgress(profileId: string, questDefId: string, assignedDay: number, delta: number): void {
+    if (!Number.isFinite(delta) || delta === 0) return;
+    // Only bumps an existing, unclaimed assignment today; a no-op for quests not assigned this
+    // day (so progress never leaks across days or onto unassigned catalog entries).
+    this.stmtIncQuest.run(delta, profileId, questDefId, assignedDay);
+  }
+
+  claimQuest(profileId: string, questDefId: string, assignedDay: number, goal: number): QuestAssignment | null {
+    const existing = this.stmtGetOneQuest.get(profileId, questDefId, assignedDay) as QuestRow | undefined;
+    if (!existing) return null;
+    if (existing.claimedAt != null) return null;
+    if (existing.progress < goal) return null;
+    const now = Date.now();
+    const info = this.stmtClaimQuest.run(now, profileId, questDefId, assignedDay, goal);
+    if (info.changes === 0) return null;
+    return { profileId, questDefId, assignedDay, progress: existing.progress, claimedAt: now };
+  }
+
+  getOwnedCosmetics(profileId: string): OwnedCosmetics {
+    const rows = this.stmtOwnedCosmetics.all(profileId) as { unlockId: string }[];
+    const profile = this.get(profileId);
+    return {
+      owned: rows.map((r) => r.unlockId),
+      equipped: profile?.equippedCosmetics ?? {},
+      softCurrency: profile?.softCurrency ?? 0,
+    };
+  }
+
+  addOwnedCosmetic(profileId: string, unlockId: string): void {
+    this.stmtInsertCosmetic.run(profileId, unlockId);
+  }
+
+  hasOwnedCosmetic(profileId: string, unlockId: string): boolean {
+    return this.stmtHasCosmetic.get(profileId, unlockId) != null;
+  }
+
+  ping(): boolean {
+    try {
+      this.stmtPing.get();
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   close(): void {

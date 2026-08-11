@@ -35,12 +35,19 @@ export interface TutorialOptions {
 
 const TUTORIAL_LAPS = 3;
 const TUTORIAL_XP_BONUS = 30;
+// Force-accelerated hero tyre wear: after lap 1 the hero's wear is pushed past the pit-hint
+// threshold (0.5). Normal wear rates are tuned for a full ~12-lap race and barely move in a
+// 3-lap tutorial, so without this nudge the pit situation never arises.
+const TUTORIAL_FORCED_WEAR = 0.55;
+// Hammer hint proximity: the hero is "in a battle" when this close (seconds) to the car ahead.
+const TUTORIAL_HAMMER_GAP_SEC = 1.0;
 
-type Step = "welcome" | "pit_hint" | "hammer_hint" | "finish";
+type Step = "welcome" | "strategy_intro" | "pit_hint" | "hammer_hint" | "finish";
 
 const STEP_MSG: Record<Step, ServerMessage> = {
   welcome: { type: "tutorialStep", step: "welcome", title: "Гонка", text: "Машина едет сама — ваш ход: пит-стоп и Hammer Time. Следите за подсказками.", highlight: null },
-  pit_hint: { type: "tutorialStep", step: "pit_hint", title: "Время сменить резину", text: "Откройте панель «Пит-стоп» и выберите другой состав. Свежая резина быстрее.", highlight: "pit" },
+  strategy_intro: { type: "tutorialStep", step: "strategy_intro", title: "Резина", text: "Soft быстрее, но изнашивается скорее. Medium долговечнее — выбирайте под стратегию.", highlight: null },
+  pit_hint: { type: "tutorialStep", step: "pit_hint", title: "Время сменить резину", text: "Износ высок! Откройте «Пит-стоп» и выберите свежий состав.", highlight: "pit" },
   hammer_hint: { type: "tutorialStep", step: "hammer_hint", title: "Hammer Time", text: "Атакуйте! Выберите режим, чтобы обогнать соперника.", highlight: "hammer" },
   finish: { type: "tutorialStep", step: "finish", title: "Финиш", text: "Гонка окончена. Дальше — заезды против живых игроков и ботов.", highlight: null },
 };
@@ -68,6 +75,7 @@ export class TutorialRoom {
   private readonly speed: number;
   private readonly fired = new Set<Step>();
   private finished = false;
+  private lastEventSeq = 0;
 
   constructor(
     sink: TutorialSink,
@@ -95,11 +103,14 @@ export class TutorialRoom {
       kind: "human",
       team: heroProfile.team,
       skills: heroProfile.skills,
-      startingTyre: heroProfile.startingTyre,
+      // Force soft so the wear story (and strategy_intro soft-vs-medium pitch) is coherent —
+      // the hero starts on the quick-but-fragile compound and learns to pit for fresh rubber.
+      startingTyre: "soft",
       pitPlan: { targetStops: 1, strategy: "flexible", compound: heroProfile.pitCompound },
     });
-    // Hero starts at the front of a small grid so the race is gentle and finishable.
-    const drivers = [this.hero, ...bots];
+    // Hero starts BEHIND one bot (P2 of 4) so there's a car to chase and overtake — that
+    // surfaces the hammer-time situation naturally within the short race.
+    const drivers = [bots[0]!, this.hero, bots[1]!, bots[2]!];
     const cfg = buildRaceConfig({
       track: redBullRing(),
       drivers,
@@ -116,6 +127,7 @@ export class TutorialRoom {
     this.send({ type: "welcome", driverId: this.heroId, sessionToken: this.id, mode: "solo" });
     this.send({ type: "stage", stage: "race" });
     this.emitStep("welcome");
+    this.emitStep("strategy_intro");
     this.timer = setInterval(() => this.tick(), this.tickMs);
   }
 
@@ -136,9 +148,10 @@ export class TutorialRoom {
   }
 
   /** Test-only: drive the race synchronously to completion (no real timer). Mirrors the
-   * production tick loop but in-process, so tests can assert the step sequence + completion. */
+    * production tick loop but in-process, so tests can assert the step sequence + completion. */
   __runForTest(maxTicks = 20000): void {
     this.emitStep("welcome");
+    this.emitStep("strategy_intro");
     let n = 0;
     while (!this.finished && n < maxTicks) {
       this.tick();
@@ -153,6 +166,7 @@ export class TutorialRoom {
     }
     if (this.engine.phase === "racing") {
       this.engine.step(CONFIG.physics.dtDefault * this.speed);
+      this.forceHeroWear();
     }
     const snap: RaceSnapshot = this.engine.snapshot();
     this.send({ type: "snapshot", stage: "race", snapshot: snap, heroId: this.heroId });
@@ -162,12 +176,35 @@ export class TutorialRoom {
     }
   }
 
+  // Push the hero's tyre wear past the pit-hint threshold once lap 1 is done. Wear is applied
+  // at lap boundaries by the engine, so in a 3-lap race the natural delta (~0.1/lap on soft)
+  // never reaches 0.5 — this guarantees the pit situation surfaces.
+  private forceHeroWear(): void {
+    const heroCar = this.engine.cars.find((c) => c.driverId === this.heroId);
+    if (heroCar && heroCar.lap >= 2 && heroCar.tyre.wear < TUTORIAL_FORCED_WEAR) {
+      heroCar.tyre.wear = TUTORIAL_FORCED_WEAR;
+    }
+  }
+
   private checkTriggers(snap: RaceSnapshot): void {
     const hero = snap.cars.find((c) => c.driverId === this.heroId);
     if (!hero) return;
-    // Lap-based triggers (robust for a short race — wear wouldn't reach the cliff in 3 laps).
-    if (!this.fired.has("pit_hint") && hero.lap >= 1) this.emitStep("pit_hint");
-    if (!this.fired.has("hammer_hint") && hero.lap >= 2) this.emitStep("hammer_hint");
+    // Pit situation: high tyre wear (situation-based, not a fixed lap number).
+    if (!this.fired.has("pit_hint") && hero.tyreWear >= 0.5) this.emitStep("pit_hint");
+    // Hammer situation: the hero was involved in an overtake since the last tick, OR the hero
+    // is within striking distance of the car ahead (gapAhead is 0 for the leader — only check
+    // when the hero is NOT in P1).
+    if (!this.fired.has("hammer_hint")) {
+      const overtakeHero = snap.events.some(
+        (e) =>
+          e.seq > this.lastEventSeq &&
+          e.type === "overtake" &&
+          (e.attackerId === this.heroId || e.victimId === this.heroId),
+      );
+      const closeBattle = hero.position > 1 && hero.gapAhead <= TUTORIAL_HAMMER_GAP_SEC;
+      if (overtakeHero || closeBattle) this.emitStep("hammer_hint");
+    }
+    if (snap.eventSeq > this.lastEventSeq) this.lastEventSeq = snap.eventSeq;
   }
 
   private emitStep(step: Step): void {
@@ -181,8 +218,13 @@ export class TutorialRoom {
     this.stop();
     const result: RaceResult = this.engine.result();
     this.send({ type: "result", result, heroId: this.heroId });
+    // Award the finish XP bonus ONLY if the hero actually pitted — the tutorial's lesson is the
+    // pit stop, so a no-pit run completes the tutorial (tutorialCompleted=true) but earns 0 XP.
+    const heroCar = this.engine.cars.find((c) => c.driverId === this.heroId);
+    const pitted = heroCar ? heroCar.tyreStops > 0 : false;
+    const xpBonus = pitted ? TUTORIAL_XP_BONUS : 0;
     if (this.repository && this.profile) {
-      this.repository.markTutorialCompleted(this.profile, TUTORIAL_XP_BONUS);
+      this.repository.markTutorialCompleted(this.profile, xpBonus);
       const level = levelFromXp(this.profile.totalXp);
       let rem = this.profile.totalXp;
       let lvl = 1;
@@ -195,7 +237,7 @@ export class TutorialRoom {
       const division = divisionForRating(driverRating(level, skillSum(this.profile.hero.skills)));
       this.send({
         type: "progression",
-        xpGained: TUTORIAL_XP_BONUS,
+        xpGained: xpBonus,
         totalXp: this.profile.totalXp,
         level,
         xpIntoLevel: rem,

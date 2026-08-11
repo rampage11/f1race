@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { createServer, type Server } from "node:http";
+import { createServer, type IncomingMessage, type Server } from "node:http";
 import { pathToFileURL } from "node:url";
 import { WebSocketServer, type WebSocket } from "ws";
+import { validateStartingAllocation, type PilotProfile } from "@f1race/race-engine";
 import type { ClientMessage, ServerMessage } from "./protocol.js";
 import { PROTOCOL_VERSION } from "./protocol.js";
 import { Room, resolveHeroProfile, type RoomSink } from "./room.js";
@@ -9,9 +10,17 @@ import { Lobby, divisionOf } from "./lobby.js";
 import { TutorialRoom } from "./tutorial-room.js";
 import { createRepository, type DriverProfileRepository } from "./persistence/index.js";
 import { handleAuthRequest, verifySessionToken, type AuthEnv } from "./auth/index.js";
-import { handleApiRequest, type ApiEnv } from "./api/http.js";
+import { handleApiRequest, isValidHero, type ApiEnv } from "./api/http.js";
+import { corsHeaders, sendJson } from "./http-util.js";
+import { log } from "./logger.js";
+import {
+  createHttpRateLimiters,
+  resolveRateBucket,
+  type HttpRateLimiters,
+} from "./rate-limit.js";
 
 const DEFAULT_DB_PATH = "./data/f1race.db";
+const STARTED_AT = Date.now();
 
 export interface ServerHandle {
   port: number;
@@ -20,6 +29,10 @@ export interface ServerHandle {
   // Exposed so tests can drive a matched room via Room.__advanceForTest (reaching a real
   // race takes minutes; the seam reuses production step methods). Not for production callers.
   rooms: Map<string, Room>;
+  // Exposed for /health (counts rooms + queued clients). Not for production callers.
+  lobby: Lobby;
+  repository: DriverProfileRepository;
+  rateLimiters: HttpRateLimiters;
   stop(): Promise<void>;
 }
 
@@ -63,15 +76,8 @@ export function startServer(port: number = Number(process.env.PORT ?? 8787)): Pr
     repository,
   };
   const apiEnv: ApiEnv = { sessionSecret, allowedOrigin: ALLOWED_ORIGIN, repository };
+  const rateLimiters = createHttpRateLimiters();
 
-  const server = createServer(async (req, res) => {
-    if (await handleAuthRequest(req, res, authEnv)) return;
-    if (await handleApiRequest(req, res, apiEnv)) return;
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ service: "f1race-server", status: "ok" }));
-  });
-
-  const wss = new WebSocketServer({ server });
   const rooms = new Map<string, Room>();
   const conns = new Map<string, ConnState>();
 
@@ -89,8 +95,12 @@ export function startServer(port: number = Number(process.env.PORT ?? 8787)): Pr
   });
 
   const registerRoom = (room: Room): Room => {
-    room.onEmpty = () => rooms.delete(room.id);
+    room.onEmpty = () => {
+      rooms.delete(room.id);
+      log.info("room.finished", { roomId: room.id, mode: room.mode });
+    };
     rooms.set(room.id, room);
+    log.info("room.created", { roomId: room.id, mode: room.mode });
     return room;
   };
 
@@ -101,11 +111,63 @@ export function startServer(port: number = Number(process.env.PORT ?? 8787)): Pr
       if (c) c.room = room;
     },
   );
+
+  const server = createServer(async (req, res) => {
+    const url0 = req.url ?? "";
+    const method0 = req.method ?? "GET";
+    const path0 = url0.split("?")[0] ?? url0;
+
+    // /health — explicit, exempt from auth/api dispatch AND from rate limiting.
+    if (method0 === "GET" && (path0 === "/health" || path0 === "/")) {
+      const dbOk = safePing(repository);
+      const status = dbOk ? "ok" : "degraded";
+      const body = {
+        service: "f1race-server",
+        status,
+        uptime: Math.floor((Date.now() - STARTED_AT) / 1000),
+        rooms: rooms.size,
+        queuedClients: lobby.queuedCount,
+        db: dbOk ? "ok" : "fail",
+      };
+      const code = dbOk ? 200 : 503;
+      const headers = corsHeaders(ALLOWED_ORIGIN);
+      headers["Content-Type"] = "application/json";
+      headers["Cache-Control"] = "no-store";
+      res.writeHead(code, headers);
+      res.end(JSON.stringify(body));
+      return;
+    }
+
+    // Rate limiting on /auth/* and /api/* (S3-6). Skip OPTIONS preflights (handled per-route).
+    const rb = resolveRateBucket(method0, path0, rateLimiters);
+    if (rb) {
+      const ip = clientIp(req);
+      if (!rb.limiter.consume(ip)) {
+        const retry = rb.limiter.retryAfterSec(ip);
+        const headers = corsHeaders(ALLOWED_ORIGIN);
+        headers["Content-Type"] = "application/json";
+        headers["Retry-After"] = String(retry);
+        res.writeHead(429, headers);
+        res.end(JSON.stringify({ error: "rate limited", retryAfterSec: retry }));
+        return;
+      }
+    }
+
+    if (await handleAuthRequest(req, res, authEnv)) return;
+    if (await handleApiRequest(req, res, apiEnv)) return;
+    // Unknown path → 404 (previously fell through to a default 200 "ok", which masked
+    // misconfigured routes). OPTIONS for any path is answered by the route handlers above
+    // with a 204 preflight; here we only reach when nothing matched.
+    sendJson(res, 404, { error: "not found" }, ALLOWED_ORIGIN);
+  });
+
+  const wss = new WebSocketServer({ server });
   lobby.start();
 
-  wss.on("connection", (ws: WebSocket) => {
+  wss.on("connection", (ws: WebSocket, req) => {
     const conn: ConnState = { ws, connectionId: randomUUID(), room: null, tutorial: null };
     conns.set(conn.connectionId, conn);
+    log.info("ws.open", { connectionId: conn.connectionId, ip: clientIp(req) });
     ws.on("message", (raw) => {
       let msg: ClientMessage;
       try {
@@ -115,8 +177,14 @@ export function startServer(port: number = Number(process.env.PORT ?? 8787)): Pr
       }
       handle(conn, msg, rooms, cleanupRoom, makeSink, repository, lobby, sessionSecret);
     });
-    ws.on("close", () => onConnClosed(conn));
-    ws.on("error", () => onConnClosed(conn));
+    ws.on("close", () => {
+      log.info("ws.close", { connectionId: conn.connectionId });
+      onConnClosed(conn);
+    });
+    ws.on("error", (err) => {
+      log.warn("ws.error", { connectionId: conn.connectionId, error: err.message });
+      onConnClosed(conn);
+    });
   });
 
   function onConnClosed(conn: ConnState): void {
@@ -135,33 +203,136 @@ export function startServer(port: number = Number(process.env.PORT ?? 8787)): Pr
     conn.room = null;
   }
 
+  // Idempotent teardown (S0-4): safe to call from tests, signal handlers, or repeated calls.
+  // Each closure resource is guarded so a second invocation can't throw on an already-closed
+  // wss / http server / repository. Returns the same Promise on repeat calls.
+  let stopped = false;
+  let stopPromise: Promise<void> | null = null;
+  const doStop = (): Promise<void> => {
+    if (stopped) return stopPromise!;
+    stopped = true;
+    stopPromise = (async () => {
+      try { lobby.stop(); } catch {}
+      for (const room of rooms.values()) {
+        try { room.stop(); } catch {}
+      }
+      rooms.clear();
+      for (const c of wss.clients) {
+        try { c.close(); } catch {}
+      }
+      try { repository.close(); } catch {}
+      await Promise.all([
+        new Promise<void>((r) => {
+          try { wss.close(() => r()); } catch { r(); }
+        }),
+        new Promise<void>((r) => {
+          try { server.close(() => r()); } catch { r(); }
+        }),
+      ]);
+    })();
+    return stopPromise;
+  };
+
   return new Promise<ServerHandle>((resolve) => {
     server.listen(port, () => {
       const actual = boundPort(server);
-      console.log(`[f1race] WS server on ws://localhost:${actual} (origin ${ALLOWED_ORIGIN}, db ${dbPath})`);
+      const mode = sessionSecret ? "auth-enabled" : "guest-only";
+      log.info("server.start", { port: actual, origin: ALLOWED_ORIGIN, db: dbPath, mode });
+      // S0-4: graceful shutdown on SIGTERM (systemd) / SIGINT (Ctrl-C). Broadcast a notice,
+      // then run the same idempotent teardown `stop()` uses, with a 5s hard fallback so a
+      // stuck close never wedges the process. `process.once` so a repeat signal falls through
+      // to Node's default handler (immediate termination).
+      const installShutdownSignal = (sig: NodeJS.Signals): void => {
+        process.once(sig, () => {
+          log.info("server.shutdown", { signal: sig });
+          const hardExit = setTimeout(() => {
+            log.error("server.shutdown.timeout", { ms: 5000 });
+            process.exit(0);
+          }, 5000);
+          hardExit.unref();
+          const notice: ServerMessage = { type: "error", message: "сервер перезапускается" };
+          for (const c of wss.clients) {
+            try {
+              if (c.readyState === c.OPEN) c.send(JSON.stringify(notice));
+            } catch {}
+          }
+          doStop().finally(() => {
+            clearTimeout(hardExit);
+            process.exit(0);
+          });
+        });
+      };
+      installShutdownSignal("SIGTERM");
+      installShutdownSignal("SIGINT");
       resolve({
         port: actual,
         server,
         wss,
         rooms,
-        stop: () => {
-          lobby.stop();
-          for (const room of rooms.values()) room.stop();
-          rooms.clear();
-          for (const c of wss.clients) c.terminate();
-          repository.close();
-          return Promise.all([
-            new Promise<void>((r) => wss.close(() => r())),
-            new Promise<void>((r) => server.close(() => r())),
-          ]).then(() => undefined);
-        },
+        lobby,
+        repository,
+        rateLimiters,
+        stop: doStop,
       });
     });
   });
 }
 
+// DB-readable probe for /health. Wraps `repository.ping()` so a broken DB doesn't crash
+// the health route itself — the request still answers (with a "degraded"/503 payload).
+function safePing(repo: DriverProfileRepository): boolean {
+  try {
+    return repo.ping();
+  } catch {
+    return false;
+  }
+}
+
+// Best-effort client-IP extraction for rate-limit keying. Behind nginx (prod), the
+// `x-forwarded-for` header carries the real client (first hop); without it (dev/tests)
+// we fall back to the raw socket address. Either way this is just a bucket key — getting
+// it wrong only affects which bucket gets debited, not authorization.
+function clientIp(req: IncomingMessage): string {
+  const xff = req.headers["x-forwarded-for"];
+  if (typeof xff === "string" && xff.length > 0) {
+    const first = xff.split(",")[0]?.trim();
+    if (first) return first;
+  }
+  // req.socket.remoteAddress is undefined for kept-alive/inline tests; default to "local".
+  return req.socket.remoteAddress ?? "unknown";
+}
+
 function applyOrError(ws: WebSocket, error: string | null): void {
   if (error) send(ws, { type: "error", message: error });
+}
+
+// S0-1 anti-cheat: validate a client-supplied hero at the WS boundary before it can reach
+// resolveHeroProfile. Shape is always checked; the starting allocation is checked ONLY for
+// pilots without a confirmed profile (a confirmed pilot may have accumulated skills via
+// training/respec/allocateSkill and the client merely echoes them back — the server owns
+// those values, so we strip skills/tyres from the wire here and resolveHeroProfile applies
+// the same defense-in-depth on its own branch).
+function validateClientHero(
+  repository: DriverProfileRepository,
+  rawHero: PilotProfile,
+  guestId: string | undefined,
+): { ok: true; hero: PilotProfile } | { ok: false; error: string } {
+  if (!isValidHero(rawHero)) return { ok: false, error: "некорректный профиль пилота" };
+  const existing = guestId ? repository.get(guestId) : null;
+  if (existing?.heroConfirmed) {
+    return {
+      ok: true,
+      hero: {
+        ...rawHero,
+        skills: existing.hero.skills,
+        startingTyre: existing.hero.startingTyre,
+        pitCompound: existing.hero.pitCompound,
+      },
+    };
+  }
+  const alloc = validateStartingAllocation(rawHero.skills);
+  if (!alloc.ok) return { ok: false, error: "некорректный профиль пилота" };
+  return { ok: true, hero: rawHero };
 }
 
 // Is this identity (guestId / Yandex sub) already holding a LIVE connection somewhere —
@@ -198,14 +369,6 @@ function handle(
         send(ws, { type: "error", message: `protocol version mismatch, expected ${PROTOCOL_VERSION}` });
         break;
       }
-      const prevRoom = conn.room;
-      if (prevRoom) {
-        prevRoom.removeConnection(conn.connectionId);
-        cleanupRoom(prevRoom);
-        conn.room = null;
-      } else {
-        lobby.dequeue(conn.connectionId);
-      }
       // Auth resolution: if `authToken` is present and verifies, its `sub` (`yandex:<id>`)
       // overrides the client-sent guestId. Invalid/absent → graceful fallback to guest flow.
       // Never throws across the WS boundary. Note: this is the Yandex auth session token,
@@ -215,10 +378,26 @@ function handle(
         const authPayload = verifySessionToken(msg.authToken, sessionSecret);
         if (authPayload) resolvedGuestId = authPayload.sub;
       }
+      // S0-1: validate the hero BEFORE tearing down any existing room/queue or touching the
+      // profile, so a malformed/god-mode hello can't disrupt an existing session or mutate
+      // a confirmed pilot's server-owned skills.
+      const heroCheck = validateClientHero(repository, msg.hero, resolvedGuestId);
+      if (!heroCheck.ok) {
+        send(ws, { type: "error", message: heroCheck.error });
+        break;
+      }
+      const prevRoom = conn.room;
+      if (prevRoom) {
+        prevRoom.removeConnection(conn.connectionId);
+        cleanupRoom(prevRoom);
+        conn.room = null;
+      } else {
+        lobby.dequeue(conn.connectionId);
+      }
       // Profile resolution happens here (not in Room) so the lobby can read the player's
       // division for matching. The resolved profile travels with the queue entry and is
       // passed back into Room.addConnection when the lobby assigns a room.
-      const resolved = resolveHeroProfile(repository, msg.hero, resolvedGuestId);
+      const resolved = resolveHeroProfile(repository, heroCheck.hero, resolvedGuestId);
       // One live session per identity: block the same account (guestId / Yandex sub) from
       // entering the queue or a room while it already holds a LIVE connection elsewhere
       // (e.g. a second device/tab). Lingering grace-period sockets don't count — reconnect
@@ -281,6 +460,9 @@ function handle(
     case "setStartingTyre":
       applyOrError(ws, conn.room?.requestSetStartingTyre(conn.connectionId, msg.compound) ?? null);
       break;
+    case "setPushLevel":
+      applyOrError(ws, conn.room?.requestPushLevel(conn.connectionId, msg.strategy) ?? null);
+      break;
     case "startReaction":
       applyOrError(
         ws,
@@ -306,11 +488,21 @@ function handle(
         const authPayload = verifySessionToken(msg.authToken, sessionSecret);
         if (authPayload) resolvedGuestId = authPayload.sub;
       }
-      const resolved = resolveHeroProfile(repository, msg.hero, resolvedGuestId);
-      if (resolved.profile && resolved.profile.tutorialCompleted === true) {
+      // S0-1: reject tutorials for profiles that already finished one BEFORE we touch the
+      // profile — otherwise a stray startTutorial would mutate a completed pilot's hero.
+      const tutorialExisting = resolvedGuestId ? repository.get(resolvedGuestId) : null;
+      if (tutorialExisting && tutorialExisting.tutorialCompleted === true) {
         send(ws, { type: "error", message: "tutorial already completed" });
         break;
       }
+      // Validate the hero (shape always; allocation only when the profile isn't confirmed —
+      // a confirmed pilot keeps server-owned skills even in the tutorial path).
+      const heroCheck = validateClientHero(repository, msg.hero, resolvedGuestId);
+      if (!heroCheck.ok) {
+        send(ws, { type: "error", message: heroCheck.error });
+        break;
+      }
+      const resolved = resolveHeroProfile(repository, heroCheck.hero, resolvedGuestId);
       const tutorial = new TutorialRoom(makeSink(ws), resolved.hero, repository, resolved.profile);
       conn.tutorial = tutorial;
       tutorial.start();

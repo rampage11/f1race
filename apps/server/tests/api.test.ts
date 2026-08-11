@@ -325,7 +325,7 @@ describe("/api/profile/respec", () => {
     expect(resp.status).toBe(403);
   });
 
-  it("is locked below respec.freeLevel (level < 10 → 409 unlock message)", async () => {
+  it("is locked below respec.freeLevel (level < 4 → 409 unlock message)", async () => {
     seedAtXp("api-respec-lowlevel", 100);
     const resp = await fetch(`${base()}/api/profile/respec`, {
       method: "POST",
@@ -334,7 +334,7 @@ describe("/api/profile/respec", () => {
     });
     expect(resp.status).toBe(409);
     const data = (await resp.json()) as { error: string };
-    expect(data.error).toMatch(/unlocks at level 10/);
+    expect(data.error).toMatch(/unlocks at level 4/);
   });
 
   it("rejects a non-point-neutral allocation (sum != current) with 400", async () => {

@@ -1,6 +1,7 @@
 import type {
   HammerMode,
   PilotProfile,
+  PushStrategy,
   QualySnapshot,
   RaceResult,
   RaceSnapshot,
@@ -11,6 +12,13 @@ import type {
 } from "@f1race/race-engine";
 
 export const PROTOCOL_VERSION = 1;
+
+// Per-stint push-level commitment (S2-4): picked at race start / pit commit and held for the
+// stint (NOT a real-time toggle). "conservative" saves rubber, "balanced" is neutral, "attack"
+// is faster but wears tyres quicker. The engine applies car.pushLevel from this choice. This
+// is the engine's canonical type — re-exported so the client can import it from the protocol
+// module without a second engine dependency.
+export type { PushStrategy };
 
 // "startSequence" sits between "qualy" and "race": qualy has finished, the lights-out
 // mini-game (spec P2 / Phase 2) is running, and the race engine is not yet constructed.
@@ -54,6 +62,10 @@ export type ClientMessage =
   // Sent during the `qualy`/`startSequence` stages; the server applies it when building the
   // race grid (authoritative — the client never sets its own race start locally).
   | { type: "setStartingTyre"; compound: TyreCompound }
+  // Per-stint push-level commitment (S2-4). Sets the hero's car.pushLevel via the engine's
+  // requestPushLevel. Valid any time during `race` (rate-limited like hammerTime); the engine
+  // resets the level to balanced on a fresh-tyre pit exit, so the player re-commits each stint.
+  | { type: "setPushLevel"; strategy: PushStrategy }
   // Request the guided first-race tutorial instead of the normal lobby flow. Sent right after
   // the socket opens (INSTEAD of `hello`) by a client that sees `tutorialCompleted === false`
   // on the loaded profile. Carries the same identity fields as `hello` so the server resolves
@@ -84,6 +96,9 @@ export interface DriverProfileSummary {
   tutorialCompleted: boolean;
   // Banked skill points from level-ups not yet spent. The hub shows a Level-Up modal while > 0.
   unspentSkillPoints: number;
+  // Earnable soft currency wallet (S3-4). Awarded by races/quests, spent on cosmetics. The hub
+  // shows the balance next to the cosmetics shop. Cosmetic-only — never affects gameplay.
+  softCurrency: number;
 }
 
 export type ServerMessage =
@@ -114,6 +129,10 @@ export type ServerMessage =
       xpForNext: number;
       division: Division;
       racesCount: number;
+      // S2-10 daily-streak state after this race (consecutive race-days, capped at 7).
+      // The XP multiplier applied this race is implied by streakDays; omitted when no streak
+      // was tracked (e.g. ephemeral profiles that didn't persist a row).
+      streakDays?: number;
     }
   | { type: "roomState"; players: RoomPlayer[]; mode: RoomMode }
   // Announces the lights-out mini-game. `lightsOutAt` is a server wall-clock ms timestamp

@@ -23,8 +23,10 @@ import {
   type Driver,
   type HammerMode,
   type PilotProfile,
+  type PushStrategy,
   type RaceResult,
   type RaceResultRow,
+  type RaceSnapshot,
   type Rng,
   type StartCategory,
   type TimeOfDay,
@@ -34,6 +36,7 @@ import {
 } from "@f1race/race-engine";
 import type { Division, RoomMode, RoomPlayer, ServerMessage, Stage } from "./protocol.js";
 import type { DriverProfile, DriverProfileRepository } from "./persistence/repository.js";
+import { pickDailyQuestIds } from "./quests.js";
 import {
   DEFAULT_REACTION_OPTIONS,
   REACTION_WINDOW_MS,
@@ -67,6 +70,7 @@ const RATE_LIMITS_MS: Record<string, number> = {
   startReaction: 200,
   hammerTime: 300,
   setStartingTyre: 800,
+  setPushLevel: 300,
 };
 
 const VALID_COMPOUNDS: ReadonlySet<TyreCompound> = new Set<TyreCompound>([
@@ -76,6 +80,22 @@ const VALID_COMPOUNDS: ReadonlySet<TyreCompound> = new Set<TyreCompound>([
   "intermediate",
   "wet",
 ]);
+
+const VALID_MODES: ReadonlySet<HammerMode> = new Set<HammerMode>([
+  "attack",
+  "defend",
+  "push",
+]);
+
+const VALID_PUSH_STRATEGIES: ReadonlySet<PushStrategy> = new Set<PushStrategy>([
+  "conservative",
+  "balanced",
+  "attack",
+]);
+
+// Soft-currency award cap per race (S3-4). Better finishes earn more; capped so a dominant P1
+// in a full 20-car field doesn't trivialize the cosmetic economy.
+const SOFT_CURRENCY_PER_RACE_CAP = 100;
 
 const DRY_COMPOUNDS: TyreCompound[] = ["soft", "medium", "hard"];
 
@@ -123,6 +143,14 @@ interface RoomConnection {
   // null for ephemeral (no guestId) connections; set when a profile was loaded/created.
   guestId: string | null;
   savedProfile: DriverProfile | null;
+  // High-water mark of the last event seq delivered to this connection. Each race snapshot
+  // sent to the client carries only events with seq > lastEventSeq (delta encoding) so the
+  // per-tick payload stays small as the race's event log grows.
+  lastEventSeq: number;
+  // Last push-level the player committed this race (S2-4). The engine resets car.pushStrategy
+  // to "balanced" on a fresh-tyre pit exit; we re-apply this after the pit completes so the
+  // player's strategic choice survives a stop. Null until the first setPushLevel.
+  committedStrategy: PushStrategy | null;
 }
 
 export class RoomJoinError extends Error {}
@@ -147,10 +175,22 @@ export function resolveHeroProfile(
   const now = Date.now();
   const existing = repository.get(guestId);
   if (existing) {
-    existing.hero = hero;
+    // Anti-cheat (S0-1): never let a client hello overwrite a confirmed pilot's skills/tyres.
+    // Skills are server-owned (training/respec/allocateSkill); only cosmetic fields may flow in
+    // from the WS hello. Unconfirmed profiles still accept the full hero (first-connect setup).
+    if (existing.heroConfirmed) {
+      existing.hero = {
+        ...existing.hero,
+        name: hero.name,
+        country: hero.country,
+        team: hero.team,
+      };
+    } else {
+      existing.hero = hero;
+    }
     existing.updatedAt = now;
     repository.upsert(existing);
-    return { hero, guestId, profile: existing };
+    return { hero: existing.hero, guestId, profile: existing };
   }
   // A missing Yandex profile (e.g. after a reset) re-created here MUST still pass the
   // first-login onboarding gate — otherwise a `hello` carrying an authToken silently
@@ -198,6 +238,7 @@ function profileSummary(p: DriverProfile): {
   racesCount: number;
   tutorialCompleted: boolean;
   unspentSkillPoints: number;
+  softCurrency: number;
 } {
   const level = levelFromXp(p.totalXp);
   const rating = driverRating(level, skillSum(p.hero.skills));
@@ -212,6 +253,7 @@ function profileSummary(p: DriverProfile): {
     racesCount: p.racesCount,
     tutorialCompleted: p.tutorialCompleted ?? true,
     unspentSkillPoints: p.unspentSkillPoints ?? 0,
+    softCurrency: p.softCurrency ?? 0,
   };
 }
 
@@ -321,6 +363,8 @@ export class Room {
       graceTimer: null,
       guestId: r.guestId,
       savedProfile: r.profile,
+      lastEventSeq: 0,
+      committedStrategy: null,
     });
     this.tokens.set(sessionToken, connectionId);
     const welcome: ServerMessage = {
@@ -389,6 +433,11 @@ export class Room {
     }
     this.connections.delete(oldConnectionId);
     this.lastCommandAt.delete(oldConnectionId);
+    // Reconnecting clients skip the event backlog: race events are ephemeral UX (overtake/pit
+    // flashes), not authoritative state — the snapshot's cars/results are already authoritative.
+    // Resending missed events on rejoin would replay stale cinematics out of context, so we pin
+    // lastEventSeq to the engine's current counter and let only freshly-emitted events flow.
+    const reboundLastEventSeq = this.race?.currentEventSeq ?? 0;
     const rebound: RoomConnection = {
       connectionId,
       sink,
@@ -399,6 +448,8 @@ export class Room {
       graceTimer: null,
       guestId: old.guestId,
       savedProfile: old.savedProfile,
+      lastEventSeq: reboundLastEventSeq,
+      committedStrategy: old.committedStrategy,
     };
     this.connections.set(connectionId, rebound);
     this.tokens.set(sessionToken, connectionId);
@@ -438,8 +489,16 @@ export class Room {
     return this.connections.get(connectionId)?.driverId ?? null;
   }
 
+  private connectionByDriverId(driverId: string): RoomConnection | null {
+    for (const c of this.connections.values()) {
+      if (c.driverId === driverId) return c;
+    }
+    return null;
+  }
+
   setSpeed(connectionId: ConnectionId, value: number): CommandError {
     if (!this.connections.has(connectionId)) return "no room for connection";
+    if (typeof value !== "number" || !Number.isFinite(value)) return "invalid speed";
     if (this.mode === "multiplayer") return "speed control not available in multiplayer";
     if (!this.rateLimitOk(connectionId, "speed")) return "rate limit: speed";
     this.speed = Math.max(1, Math.min(30, Math.round(value)));
@@ -455,6 +514,7 @@ export class Room {
   }
 
   requestPit(connectionId: ConnectionId, compound: TyreCompound): CommandError {
+    if (!VALID_COMPOUNDS.has(compound)) return "invalid tyre compound";
     const driverId = this.driverIdOf(connectionId);
     if (!driverId) return "no driver for connection";
     if (!this.rateLimitOk(connectionId, "pit")) return "rate limit: pit";
@@ -476,6 +536,7 @@ export class Room {
   }
 
   requestHammer(connectionId: ConnectionId, mode: HammerMode): CommandError {
+    if (!VALID_MODES.has(mode)) return "invalid hammer mode";
     const driverId = this.driverIdOf(connectionId);
     if (!driverId) return "no driver for connection";
     if (!this.rateLimitOk(connectionId, "hammerTime")) return "rate limit: hammerTime";
@@ -511,6 +572,22 @@ export class Room {
     return null;
   }
 
+  // Per-stint push-level commitment (S2-4). Validates the strategy, maps to the hero driverId,
+  // and forwards to the engine's requestPushLevel. The committed strategy is remembered on the
+  // connection so it can be re-applied after a pit stop (the engine resets to balanced on exit).
+  requestPushLevel(connectionId: ConnectionId, strategy: PushStrategy): CommandError {
+    if (!VALID_PUSH_STRATEGIES.has(strategy)) return "invalid push strategy";
+    const conn = this.connections.get(connectionId);
+    if (!conn) return "no room for connection";
+    if (!this.rateLimitOk(connectionId, "setPushLevel")) return "rate limit: setPushLevel";
+    if (this.stage !== "race" || !this.race) return "push level only available during the race";
+    const result = this.race.requestPushLevel(conn.driverId, strategy);
+    if (result === "rejected_unknown_driver") return "unknown driver";
+    if (result === "rejected_not_racing") return "not racing";
+    conn.committedStrategy = strategy;
+    return null;
+  }
+
   recordStartReaction(
     connectionId: ConnectionId,
     clientTimestamp: number,
@@ -538,6 +615,7 @@ export class Room {
     this.stop();
     this.clearStartSequence();
     this.pendingStartingTyre.clear();
+    for (const c of this.connections.values()) c.committedStrategy = null;
     this.seed = (this.seed * 1103515245 + 12345) & 0x7fffffff;
     this.rerollConditions();
     this.race = null;
@@ -588,13 +666,32 @@ export class Room {
       if (this.qualy.phase === "finished") this.beginStartSequence(randomStartDelayMs());
       this.emitSnapshot();
     } else if (this.stage === "race" && this.race) {
-      let n = steps;
-      while (n-- > 0 && this.race.phase === "racing") this.race.step(DT);
-      if (this.race.phase === "finished") this.finishRace();
+      this.stepRaceWithReapply(steps);
+      if (this.race?.phase === "finished") this.finishRace();
       this.emitSnapshot();
     }
     // "startSequence" has no per-tick work: resolution is driven by startReaction (early)
     // and sequenceTimer (hard deadline at lightsOutAt + REACTION_WINDOW_MS).
+  }
+
+  // Step the race engine `steps` times, then re-apply any committed non-balanced push strategy
+  // to cars that just exited the pits (the engine resets to balanced on fresh-tyre exit). The
+  // inPits transition is detected by snapshotting which cars were in the pits before stepping.
+  private stepRaceWithReapply(steps: number): void {
+    if (!this.race) return;
+    const inPitsBefore = new Set<string>();
+    for (const c of this.race.cars) if (c.inPits) inPitsBefore.add(c.driverId);
+    let n = steps;
+    while (n-- > 0 && this.race.phase === "racing") this.race.step(DT);
+    if (this.race && this.race.phase === "racing") {
+      for (const c of this.race.cars) {
+        if (inPitsBefore.has(c.driverId) && !c.inPits) {
+          const conn = this.connectionByDriverId(c.driverId);
+          const strat = conn?.committedStrategy;
+          if (strat && strat !== "balanced") this.race.requestPushLevel(c.driverId, strat);
+        }
+      }
+    }
   }
 
   private rateLimitOk(connectionId: ConnectionId, cmd: string): boolean {
@@ -690,6 +787,7 @@ export class Room {
         drivers: this.drivers,
         seed: this.seed * 7 + 1,
         startIntervalSec: 5,
+        weather: this.weather,
       }),
     );
     this.stage = "qualy";
@@ -820,8 +918,18 @@ export class Room {
     this.resolveStartSequence();
   }
   /** @internal Emit a snapshot synchronously to all sinks (for mid-race assertions, e.g.
-   *  verifying hammerTime state after a requestHammer call that doesn't itself emit). */
+    *  verifying hammerTime state after a requestHammer call that doesn't itself emit). */
   __emitSnapshotForTest(): void {
+    this.emitSnapshot();
+  }
+  /** @internal Step the race one tick-batch at the room's speed, mirroring the production tick
+    *  (incl. pit-exit strategy re-apply). For tests that need to observe mid-race state changes
+    *  driven by the tick loop without the real setInterval. Returns when the race finishes. */
+  __stepRaceForTest(): void {
+    if (this.stage !== "race" || !this.race) return;
+    const steps = Math.max(1, Math.round((this.speed * (TICK_MS / 1000)) / DT));
+    this.stepRaceWithReapply(steps);
+    if (this.race?.phase === "finished") this.finishRace();
     this.emitSnapshot();
   }
   /** @internal Step the race engine until the given driver's lap >= minLap, or the race
@@ -907,12 +1015,13 @@ export class Room {
     if (!this.repository) return;
     const rowsByDriver = new Map<string, RaceResultRow>();
     for (const r of result.rows) rowsByDriver.set(r.driverId, r);
+    const today = Math.floor(Date.now() / 86_400_000);
     for (const conn of this.connections.values()) {
       const profile = conn.savedProfile;
       if (!profile) continue;
       const row = rowsByDriver.get(conn.driverId);
       if (!row) continue;
-      const xpGained = xpForRace({
+      const baseXp = xpForRace({
         place: row.place,
         gridSize: result.rows.length,
         fastestLap: row.fastestLap,
@@ -920,11 +1029,33 @@ export class Room {
         dnf: row.dnf,
         polePosition: row.gridPosition === 1,
       });
+      // S2-10 daily-streak recompute. Same-day race → no change. Yesterday → extend (cap 7).
+      // Older gap (or never-raced) → start fresh at 1. Multiplier is +10% per day past 1.
+      const prevDay = profile.lastRaceDay ?? null;
+      let streakDays: number;
+      if (prevDay === today) {
+        streakDays = profile.streakDays ?? 1;
+      } else if (prevDay === today - 1) {
+        streakDays = Math.min((profile.streakDays ?? 0) + 1, 7);
+      } else {
+        streakDays = 1;
+      }
+      profile.lastRaceDay = today;
+      profile.streakDays = streakDays;
+      const multiplier = 1 + 0.1 * (streakDays - 1);
+      const xpGained = Math.round(baseXp * multiplier);
       const oldXp = profile.totalXp;
       profile.totalXp += xpGained;
       profile.racesCount += 1;
       // Bank spendable skill points for any level(s) gained this race (pointsPerLevel each).
       profile.unspentSkillPoints = (profile.unspentSkillPoints ?? 0) + levelUpPointsAccrued(oldXp, profile.totalXp);
+      // S3-4 soft currency: better finishes earn more. DNFs earn nothing (no participation
+      // trophy for crashing out). Capped so a P1 in a full field doesn't inflate the economy.
+      if (!row.dnf) {
+        const positionsAheadOfLast = Math.max(0, result.rows.length - row.place);
+        const earned = Math.min(SOFT_CURRENCY_PER_RACE_CAP, 10 + 5 * positionsAheadOfLast);
+        profile.softCurrency = (profile.softCurrency ?? 0) + earned;
+      }
       profile.updatedAt = Date.now();
       this.repository.recordRaceFinish(profile, {
         profileId: profile.guestId,
@@ -936,6 +1067,15 @@ export class Room {
         xpGained,
         dnf: row.dnf,
       });
+      // S2-9 daily quest progress hooks. Assign today's quests first (idempotent) so progress
+      // is captured even if the player never opened the quests panel, then bump each relevant
+      // quest by its delta. incrementQuestProgress is a no-op for quests not assigned today.
+      this.repository.assignDailyQuests(profile.guestId, today, pickDailyQuestIds(profile.guestId, today));
+      this.repository.incrementQuestProgress(profile.guestId, "finish_race", today, 1);
+      if (row.place <= 5) this.repository.incrementQuestProgress(profile.guestId, "finish_top5", today, 1);
+      if (row.positionsGained > 0) this.repository.incrementQuestProgress(profile.guestId, "overtakes_2", today, row.positionsGained);
+      if (row.tyreStops > 0) this.repository.incrementQuestProgress(profile.guestId, "pit_stop", today, 1);
+      if (row.fastestLap) this.repository.incrementQuestProgress(profile.guestId, "fastest_lap", today, 1);
       const prog = progressFromXp(profile.totalXp);
       if (conn.connected && conn.sink.isOpen()) {
         const rating = driverRating(prog.level, skillSum(profile.hero.skills));
@@ -948,16 +1088,17 @@ export class Room {
           xpForNext: prog.xpForNext,
           division: divisionForRating(rating),
           racesCount: profile.racesCount,
+          streakDays,
         });
       }
     }
   }
 
-  private broadcast(build: (driverId: string) => ServerMessage): void {
+  private broadcast(build: (driverId: string, conn: RoomConnection) => ServerMessage): void {
     for (const conn of this.connections.values()) {
       if (!conn.connected) continue;
       if (!conn.sink.isOpen()) continue;
-      conn.sink.send(build(conn.driverId));
+      conn.sink.send(build(conn.driverId, conn));
     }
   }
 
@@ -975,7 +1116,12 @@ export class Room {
       this.broadcast((driverId) => ({ type: "snapshot", stage: "qualy", snapshot, heroId: driverId }));
     } else if (this.stage === "race" && this.race) {
       const snapshot = this.race.snapshot();
-      this.broadcast((driverId) => ({ type: "snapshot", stage: "race", snapshot, heroId: driverId }));
+      this.broadcast((driverId, conn) => ({
+        type: "snapshot",
+        stage: "race",
+        snapshot: this.raceSnapshotForConn(snapshot, conn),
+        heroId: driverId,
+      }));
     }
   }
 
@@ -986,8 +1132,18 @@ export class Room {
     if (this.stage === "qualy" && this.qualy) {
       conn.sink.send({ type: "snapshot", stage: "qualy", snapshot: this.qualy.snapshot(), heroId: driverId });
     } else if (this.stage === "race" && this.race) {
-      conn.sink.send({ type: "snapshot", stage: "race", snapshot: this.race.snapshot(), heroId: driverId });
+      const snapshot = this.race.snapshot();
+      conn.sink.send({ type: "snapshot", stage: "race", snapshot: this.raceSnapshotForConn(snapshot, conn), heroId: driverId });
     }
+  }
+
+  // Delta-encode the race event stream per connection: keep only events newer than the
+  // connection's high-water mark, then advance the mark to the engine's current counter.
+  // Mutates conn.lastEventSeq as a side effect (one advance per snapshot send).
+  private raceSnapshotForConn(snapshot: RaceSnapshot, conn: RoomConnection): RaceSnapshot {
+    const newEvents = snapshot.events.filter((e) => e.seq > conn.lastEventSeq);
+    if (newEvents.length > 0) conn.lastEventSeq = snapshot.eventSeq;
+    return { ...snapshot, events: newEvents };
   }
 
   private emitResult(): void {
